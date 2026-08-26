@@ -23,6 +23,24 @@ RAW_DIR = "data/raw"
 DOCS_DATA_DIR = "docs/data"
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 
+
+def get_json_with_retry(url: str, retries: int = 4, base_wait: float = 1.5):
+    """HTTP GET with retry/backoff. Returns JSON dict, or None after repeated failure."""
+    last_err = None
+    for attempt in range(1, retries + 1):
+        try:
+            r = requests.get(url, headers=HEADERS, timeout=25)
+            r.raise_for_status()
+            return r.json()
+        except (requests.RequestException, ValueError) as e:
+            last_err = e
+            if attempt < retries:
+                wait = base_wait * attempt
+                print(f"請求失敗，第 {attempt}/{retries} 次：{e}；{wait:.1f}s 後重試")
+                time.sleep(wait)
+    print(f"連續 {retries} 次失敗，跳過此筆資料：{last_err}")
+    return None
+
 # MACD 參數：9 / 12 / 130
 # 依策略定義：Signal=9、Fast EMA=12、Slow EMA=130。
 # MACD130 = EMA12 - EMA130；篩選條件為 MACD130 > 0。
@@ -53,9 +71,9 @@ def _num(row, idx, key):
 def fetch_twse(d: date):
     ymd = d.strftime("%Y%m%d")
     url = f"https://www.twse.com.tw/exchangeReport/MI_INDEX?response=json&date={ymd}&type=ALLBUT0999"
-    r = requests.get(url, headers=HEADERS, timeout=20)
-    r.raise_for_status()
-    data = r.json()
+    data = get_json_with_retry(url)
+    if not data:
+        return [], None
     if data.get("stat") != "OK":
         return [], None
     rows, index_close = [], None
@@ -92,9 +110,9 @@ def fetch_twse(d: date):
 def fetch_tpex(d: date):
     roc = to_roc_date(d)
     url = f"https://www.tpex.org.tw/web/stock/aftertrading/daily_close_quotes/stk_quote_result.php?l=zh-tw&d={roc}"
-    r = requests.get(url, headers=HEADERS, timeout=20)
-    r.raise_for_status()
-    data = r.json()
+    data = get_json_with_retry(url)
+    if not data:
+        return []
     rows = []
     for t in data.get("tables", []):
         fields = t.get("fields", [])
@@ -146,11 +164,12 @@ def backfill(days: int):
                     json.dump(snap, f, ensure_ascii=False)
                 got += 1
                 print(f"抓到 {d}：{len(snap['rows'])} 檔")
-            time.sleep(0.4)
+            time.sleep(1.0)
         else:
             got += 1
         checked += 1
         d -= timedelta(days=1)
+    print(f"回補完成：成功取得/已有 {got} 個交易日資料，共檢查 {checked} 個日曆日")
 
 
 def fetch_today():
