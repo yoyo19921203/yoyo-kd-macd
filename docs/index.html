@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>KD + MACD 個人選股觀察</title>
+<style>
+  :root { --bg:#0b1120; --card:#ffffff; --ink:#111827; --muted:#6b7280; --accent:#3b5bfd; --line:#e5e7eb; --good:#0a7c3a; --bad:#b91c1c; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; background:#f3f4f6; color:var(--ink); }
+  header { background:var(--bg); color:#fff; padding:28px 20px; }
+  header h1 { margin:0 0 6px; font-size:22px; }
+  header p { margin:0; color:#9aa4c0; font-size:13px; }
+  .wrap { max-width:1100px; margin:0 auto; padding:20px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:18px 20px; margin-bottom:16px; }
+  .gate { max-width:420px; margin:80px auto; }
+  .gate input { width:100%; padding:12px 14px; font-size:20px; letter-spacing:4px; text-align:center; border:1px solid var(--line); border-radius:8px; margin:12px 0; }
+  .gate button, .btn { background:var(--accent); color:#fff; border:none; padding:10px 18px; border-radius:8px; font-size:14px; cursor:pointer; }
+  .gate .err { color:var(--bad); font-size:13px; min-height:18px; }
+  .filters { display:flex; flex-wrap:wrap; gap:10px; align-items:center; font-size:13px; }
+  .filters label { display:flex; align-items:center; gap:6px; background:#f3f4f6; padding:6px 10px; border-radius:999px; }
+  select { padding:6px 8px; border-radius:6px; border:1px solid var(--line); }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { padding:8px 10px; border-bottom:1px solid var(--line); text-align:right; white-space:nowrap; }
+  th:nth-child(1), th:nth-child(2), td:nth-child(1), td:nth-child(2) { text-align:left; }
+  th { color:var(--muted); font-weight:600; position:sticky; top:0; background:#fff; }
+  .tablewrap { overflow-x:auto; }
+  .pos { color:var(--good); } .neg { color:var(--bad); }
+  .tag { display:inline-block; padding:1px 8px; border-radius:999px; font-size:11px; }
+  .tag.y { background:#e6f6ec; color:var(--good); } .tag.n { background:#f3f4f6; color:var(--muted); }
+  .disclaimer { font-size:12px; color:var(--muted); line-height:1.7; }
+  .count { color:var(--muted); font-size:13px; }
+</style>
+</head>
+<body>
+
+<div id="gateView" class="gate card">
+  <h2 style="margin-top:0">輸入密碼</h2>
+  <p class="disclaimer">這是私人使用的股票技術指標觀察頁面，僅供資料整理與策略觀察，不構成任何投資建議。</p>
+  <input id="pwInput" type="password" inputmode="text" maxlength="20" placeholder="密碼">
+  <div class="err" id="pwErr"></div>
+  <button class="btn" onclick="tryUnlock()">進入</button>
+</div>
+
+<div id="mainView" style="display:none">
+  <header>
+    <div class="wrap">
+      <h1>KD + MACD 個人選股觀察</h1>
+      <p id="subtitle"></p>
+    </div>
+  </header>
+  <div class="wrap">
+    <div class="card">
+      <div class="filters">
+        <label>日期
+          <select id="dateSelect"></select>
+        </label>
+        <label>市場
+          <select id="marketSelect">
+            <option value="all">全部</option>
+            <option value="上市">上市</option>
+            <option value="上櫃">上櫃</option>
+          </select>
+        </label>
+        <label><input type="checkbox" id="onlyVol"> 只看量能符合</label>
+        <label><input type="checkbox" id="onlyKd3"> 只看 KD3 強勢</label>
+        <label><input type="checkbox" id="onlyMacd"> 只看 MACD130 &gt; 0</label>
+      </div>
+    </div>
+    <div class="card">
+      <div class="count" id="countLine"></div>
+      <div class="tablewrap">
+        <table id="reportTable">
+          <thead>
+            <tr>
+              <th>市場</th><th>代號 名稱</th><th>KD交叉日</th><th>收盤價</th>
+              <th>連續</th><th>量能</th><th>20日均量(張)</th><th>KD3強勢</th><th>MACD130&gt;0</th>
+              <th>RS 5日</th><th>RS 20日</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card disclaimer">
+      <strong>說明</strong><br>
+      KD：近期 KD 黃金交叉標的（9,3,3 參數，交叉後 5 個交易日內都會列出）。<br>
+      KD3 強勢：黃金交叉後，K 與 D 的差距持續擴大。<br>
+      MACD130 &gt; 0：MACD 參數為 9 / 12 / 130，使用 EMA12−EMA130；數值大於 0 才視為符合。<br>
+      量能：5 日均量 &gt; 10 日均量。20日均量單位為「張」。<br>
+      RS 相對強度：個股同期報酬率減去大盤加權指數同期報酬率，正值代表同期跑贏大盤，僅供排序比較，不代表未來漲跌。<br><br>
+      <strong>本頁內容僅供資料整理與策略觀察，不構成任何投資建議，投資人應自行判斷風險並承擔投資結果。</strong>
+    </div>
+  </div>
+</div>
+
+<script>
+// 密碼用 SHA-256 雜湊比對，原始密碼不會出現在原始碼裡。
+// 要換密碼：把新密碼的 SHA-256 雜湊值貼到下面 PW_HASH，可以請 Claude 幫你算。
+const PW_HASH = "071d422f7635ad42a5ff7bff29f0e7f48f2dcd94676be8cd8d2369d1acec86a3"; // 預設密碼：yoyo2026，請盡快自行更換
+
+async function sha256(text) {
+  const enc = new TextEncoder().encode(text);
+  const buf = await crypto.subtle.digest("SHA-256", enc);
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function tryUnlock() {
+  const val = document.getElementById("pwInput").value.trim();
+  const hash = await sha256(val);
+  if (hash === PW_HASH) {
+    sessionStorage.setItem("unlocked", "1");
+    document.getElementById("gateView").style.display = "none";
+    document.getElementById("mainView").style.display = "block";
+    initApp();
+  } else {
+    document.getElementById("pwErr").textContent = "密碼錯誤";
+  }
+}
+document.getElementById("pwInput").addEventListener("keydown", e => { if (e.key === "Enter") tryUnlock(); });
+
+if (sessionStorage.getItem("unlocked") === "1") {
+  document.getElementById("gateView").style.display = "none";
+  document.getElementById("mainView").style.display = "block";
+  initApp();
+}
+
+let allDates = [];
+let currentRows = [];
+
+async function initApp() {
+  try {
+    const res = await fetch("data/dates.json", { cache: "no-store" });
+    allDates = await res.json();
+  } catch (e) {
+    allDates = [];
+  }
+  const sel = document.getElementById("dateSelect");
+  sel.innerHTML = "";
+  allDates.slice().reverse().forEach(d => {
+    const opt = document.createElement("option");
+    opt.value = d;
+    opt.textContent = `${d.slice(0,4)}-${d.slice(4,6)}-${d.slice(6,8)}`;
+    sel.appendChild(opt);
+  });
+  sel.addEventListener("change", () => loadDate(sel.value));
+  document.getElementById("marketSelect").addEventListener("change", render);
+  document.getElementById("onlyVol").addEventListener("change", render);
+  document.getElementById("onlyKd3").addEventListener("change", render);
+  document.getElementById("onlyMacd").addEventListener("change", render);
+  if (allDates.length) {
+    await loadDate(allDates[allDates.length - 1]);
+  } else {
+    document.getElementById("subtitle").textContent = "目前還沒有資料，等排程第一次跑完後就會出現。";
+  }
+}
+
+async function loadDate(d) {
+  document.getElementById("dateSelect").value = d;
+  try {
+    const res = await fetch(`data/${d}.json`, { cache: "no-store" });
+    currentRows = await res.json();
+  } catch (e) {
+    currentRows = [];
+  }
+  document.getElementById("subtitle").textContent =
+    `資料日期：${d.slice(0,4)}-${d.slice(4,6)}-${d.slice(6,8)}`;
+  render();
+}
+
+function macd130Ok(r) {
+  if (typeof r.macd130_positive === "boolean") return r.macd130_positive;
+  if (r.macd130 !== null && r.macd130 !== undefined && r.macd130 !== "") {
+    const v = Number(r.macd130);
+    return Number.isFinite(v) && v > 0;
+  }
+  return !!r.macd_positive; // 舊資料相容
+}
+
+function render() {
+  const market = document.getElementById("marketSelect").value;
+  const onlyVol = document.getElementById("onlyVol").checked;
+  const onlyKd3 = document.getElementById("onlyKd3").checked;
+  const onlyMacd = document.getElementById("onlyMacd").checked;
+  let rows = currentRows.filter(r => {
+    if (market !== "all" && r.market !== market) return false;
+    if (onlyVol && !r.vol_ok) return false;
+    if (onlyKd3 && !r.kd3_strong) return false;
+    if (onlyMacd && !macd130Ok(r)) return false;
+    return true;
+  });
+  document.getElementById("countLine").textContent = `共 ${rows.length} / ${currentRows.length} 檔`;
+  const tbody = document.querySelector("#reportTable tbody");
+  tbody.innerHTML = "";
+  const fmtPct = v => v === null || v === undefined ? "-" :
+    `<span class="${v >= 0 ? 'pos' : 'neg'}">${v >= 0 ? '+' : ''}${v.toFixed(2)}%</span>`;
+  const tag = ok => `<span class="tag ${ok ? 'y' : 'n'}">${ok ? 'Y' : 'N'}</span>`;
+  rows.forEach(r => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${r.market}</td>
+      <td>${r.code} ${r.name}</td>
+      <td>${r.kd_date}</td>
+      <td>${r.close}</td>
+      <td>${r.days_since_cross}</td>
+      <td>${tag(r.vol_ok)}</td>
+      <td>${r.vol20 ?? '-'}</td>
+      <td>${tag(r.kd3_strong)}</td>
+      <td>${tag(macd130Ok(r))}</td>
+      <td>${fmtPct(r.rs5)}</td>
+      <td>${fmtPct(r.rs20)}</td>`;
+    tbody.appendChild(tr);
+  });
+}
+</script>
+</body>
+</html>
