@@ -1,0 +1,120 @@
+name: 3324 歷史資料診斷
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 取出程式碼
+        uses: actions/checkout@v4
+
+      - name: 設定 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 安裝套件
+        run: pip install pandas
+
+      - name: 診斷 3324 最近 30 個交易日
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          import pandas as pd
+
+          CODE = "3324"
+          TARGET = "20260826"
+          rows = []
+
+          for p in sorted(Path("data/raw").glob("*.json")):
+              date = p.stem
+              if not (date.isdigit() and len(date) == 8 and date <= TARGET):
+                  continue
+
+              try:
+                  data = json.loads(p.read_text(encoding="utf-8"))
+              except Exception:
+                  continue
+
+              # 相容 raw JSON 為 list，或外層包 records/data/stocks/items
+              if isinstance(data, dict):
+                  records = None
+                  for key in ("records", "data", "stocks", "items"):
+                      if isinstance(data.get(key), list):
+                          records = data[key]
+                          break
+                  if records is None:
+                      continue
+              elif isinstance(data, list):
+                  records = data
+              else:
+                  continue
+
+              for r in records:
+                  if not isinstance(r, dict) or str(r.get("code", "")).strip() != CODE:
+                      continue
+                  try:
+                      rows.append({
+                          "date": pd.to_datetime(date, format="%Y%m%d"),
+                          "market": r.get("market"),
+                          "name": r.get("name"),
+                          "open": float(r["open"]),
+                          "high": float(r["high"]),
+                          "low": float(r["low"]),
+                          "close": float(r["close"]),
+                          "volume": float(r["volume"]),
+                      })
+                  except (KeyError, TypeError, ValueError):
+                      pass
+                  break
+
+          if not rows:
+              raise SystemExit("❌ data/raw 中找不到 3324 的有效歷史資料")
+
+          df = (pd.DataFrame(rows)
+                  .drop_duplicates("date", keep="last")
+                  .sort_values("date")
+                  .reset_index(drop=True))
+
+          # 依目前網站常見定義，直接用交易日位移檢查 RS 與均量
+          df["vol5"] = df["volume"].rolling(5).mean()
+          df["vol20"] = df["volume"].rolling(20).mean()
+          df["rs5"] = (df["close"] / df["close"].shift(5) - 1) * 100
+          df["rs20"] = (df["close"] / df["close"].shift(20) - 1) * 100
+
+          print("=" * 105)
+          print(f"3324 原始歷史診斷｜截至 {TARGET}")
+          print(f"有效交易日筆數：{len(df)}")
+          print("=" * 105)
+
+          show = df.tail(30).copy()
+          for c in ("open","high","low","close","volume","vol5","vol20","rs5","rs20"):
+              show[c] = show[c].round(4)
+          show["date"] = show["date"].dt.strftime("%Y%m%d")
+          print(show[["date","open","high","low","close","volume","vol5","vol20","rs5","rs20"]].to_string(index=False))
+
+          last = df.iloc[-1]
+          print("\n" + "=" * 105)
+          print("8/26 關鍵值")
+          print(f"日期      : {last['date'].strftime('%Y%m%d')}")
+          print(f"收盤      : {last['close']:.4f}")
+          print(f"成交量    : {last['volume']:.4f}")
+          print(f"5日均量   : {last['vol5']:.4f}")
+          print(f"20日均量  : {last['vol20']:.4f}")
+          print(f"RS5       : {last['rs5']:.4f}%")
+          print(f"RS20      : {last['rs20']:.4f}%")
+
+          print("\n凱基畫面 2026-08-26 對照值：")
+          print("收盤      : 1075.00")
+          print("20日均量  : 2809")
+          print("RS5       : +5.87%")
+          print("RS20      : +7.35%")
+          print("\n請把這整段 GitHub Actions 輸出截圖/貼給 ChatGPT。")
+          PY
