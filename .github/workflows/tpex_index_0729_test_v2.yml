@@ -1,0 +1,93 @@
+name: TPEx 7月29日櫃買指數測試 v2
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 設定 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 安裝 requests
+        run: pip install requests
+
+      - name: 用新版官方歷史指數端點抓 2026-07-29
+        shell: bash
+        run: |
+          python - <<'PY'
+          import requests, json
+
+          url = "https://www.tpex.org.tw/www/zh-tw/indexInfo/sectinx"
+          params = {
+              "date": "2026/07/29",
+              "response": "json",
+          }
+          headers = {
+              "User-Agent": "Mozilla/5.0",
+              "Referer": "https://www.tpex.org.tw/zh-tw/mainboard/trading/info/indices-pricing.html",
+          }
+
+          r = requests.get(url, params=params, headers=headers, timeout=30)
+          print("HTTP:", r.status_code)
+          print("實際 URL:", r.url)
+          r.raise_for_status()
+
+          data = r.json()
+          print("Top-level keys:", list(data.keys()))
+          print("date:", data.get("date"))
+          print("stat:", data.get("stat"))
+
+          tables = data.get("tables") or []
+          print("tables 數量:", len(tables))
+
+          found = False
+          for i, table in enumerate(tables):
+              fields = table.get("fields") or []
+              rows = table.get("data") or []
+              print(f"\n--- table {i} ---")
+              print("fields:", fields)
+              print("rows:", len(rows))
+
+              for row in rows:
+                  if not row:
+                      continue
+                  if str(row[0]).strip() == "櫃買指數":
+                      print("\n✅ 找到櫃買指數：")
+                      print("raw row:", row)
+
+                      # 依官方目前欄位順序：
+                      # [名稱, 收盤指數, 漲跌, 開盤指數, 最高指數, 最低指數, ...]
+                      close = row[1] if len(row) > 1 else None
+                      change = row[2] if len(row) > 2 else None
+                      open_ = row[3] if len(row) > 3 else None
+                      high = row[4] if len(row) > 4 else None
+                      low = row[5] if len(row) > 5 else None
+
+                      print("2026-07-29 櫃買指數")
+                      print("Close :", close)
+                      print("Change:", change)
+                      print("Open  :", open_)
+                      print("High  :", high)
+                      print("Low   :", low)
+                      found = True
+                      break
+
+              if found:
+                  break
+
+          if not found:
+              print("\n❌ 沒找到『櫃買指數』列")
+              print("完整 JSON 前 3000 字：")
+              print(json.dumps(data, ensure_ascii=False)[:3000])
+              raise SystemExit(1)
+
+          print("\n請把『✅ 找到櫃買指數』到最後整段貼給 ChatGPT。")
+          PY
