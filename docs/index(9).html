@@ -38,7 +38,7 @@
 <div id="gateView" class="gate card">
   <h2 style="margin-top:0">輸入密碼</h2>
   <p class="disclaimer">這是私人使用的股票技術指標觀察頁面，僅供資料整理與策略觀察，不構成任何投資建議。</p>
-  <input id="pwInput" type="password" inputmode="text" maxlength="20" placeholder="密碼">
+  <input id="pwInput" type="password" inputmode="numeric" maxlength="20" placeholder="密碼">
   <div class="err" id="pwErr"></div>
   <button class="btn" onclick="tryUnlock()">進入</button>
 </div>
@@ -98,7 +98,7 @@
 <script>
 // 密碼用 SHA-256 雜湊比對，原始密碼不會出現在原始碼裡。
 // 要換密碼：把新密碼的 SHA-256 雜湊值貼到下面 PW_HASH，可以請 Claude 幫你算。
-const PW_HASH = "071d422f7635ad42a5ff7bff29f0e7f48f2dcd94676be8cd8d2369d1acec86a3"; // 預設密碼：yoyo2026，請盡快自行更換
+const PW_HASH = "ea01aa3c1ba251e379ac169014631901f032db13a1d838b431786a6c33c9c8c1"; // 密碼：10311203
 
 async function sha256(text) {
   const enc = new TextEncoder().encode(text);
