@@ -3,18 +3,26 @@ name: 每日更新 KD+MACD 觀察名單
 on:
   schedule:
     - cron: "30 7 * * 1-5"
+
   workflow_dispatch:
     inputs:
       backfill_days:
-        description: "回補交易日數（平常0）"
+        description: "回補交易日數（平常 0）"
         required: false
         default: "0"
+
       report_date:
         description: "指定重算日期，例如 20260826；平常留空"
         required: false
         default: ""
+
       run_backtest:
         description: "要跑底部策略回測填 1，平常 0"
+        required: false
+        default: "0"
+
+      repair_tpex:
+        description: "修補上櫃歷史資料天數，例如 260；平常 0"
         required: false
         default: "0"
 
@@ -24,30 +32,37 @@ permissions:
 jobs:
   update:
     runs-on: ubuntu-latest
+
     steps:
       - name: 取出程式碼
         uses: actions/checkout@v4
+
       - name: 設定 Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
       - name: 安裝套件
         run: pip install -r requirements.txt
 
+      - name: 修補 TPEx 上櫃歷史資料
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.repair_tpex != '0' && github.event.inputs.repair_tpex != '' }}
+        run: python scripts/fetch_and_compute.py --repair-tpex ${{ github.event.inputs.repair_tpex }}
+
       - name: 執行回測
-        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.run_backtest == '1' }}
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.repair_tpex == '0' && github.event.inputs.run_backtest == '1' }}
         run: python scripts/fetch_and_compute.py --backtest
 
       - name: 指定日期重算
-        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.run_backtest != '1' && github.event.inputs.report_date != '' }}
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.repair_tpex == '0' && github.event.inputs.run_backtest != '1' && github.event.inputs.report_date != '' }}
         run: python scripts/fetch_and_compute.py --report-date ${{ github.event.inputs.report_date }}
 
       - name: 手動回補歷史
-        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.run_backtest != '1' && github.event.inputs.report_date == '' && github.event.inputs.backfill_days != '0' && github.event.inputs.backfill_days != '' }}
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.repair_tpex == '0' && github.event.inputs.run_backtest != '1' && github.event.inputs.report_date == '' && github.event.inputs.backfill_days != '0' && github.event.inputs.backfill_days != '' }}
         run: python scripts/fetch_and_compute.py --backfill ${{ github.event.inputs.backfill_days }}
 
       - name: 一般排程／手動跑今天
-        if: ${{ github.event_name != 'workflow_dispatch' || (github.event.inputs.run_backtest != '1' && github.event.inputs.report_date == '' && (github.event.inputs.backfill_days == '0' || github.event.inputs.backfill_days == '')) }}
+        if: ${{ github.event_name != 'workflow_dispatch' || (github.event.inputs.repair_tpex == '0' && github.event.inputs.run_backtest != '1' && github.event.inputs.report_date == '' && (github.event.inputs.backfill_days == '0' || github.event.inputs.backfill_days == '')) }}
         run: python scripts/fetch_and_compute.py
 
       - name: 提交更新
@@ -56,6 +71,7 @@ jobs:
           git config user.name "kd-macd-bot"
           git config user.email "bot@users.noreply.github.com"
           git add -A data docs
+
           if ! git diff --cached --quiet; then
             git commit -m "更新多策略資料 $(date +%Y-%m-%d)"
             git push
