@@ -1,0 +1,76 @@
+name: TPEx 7月29日櫃買指數測試
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 設定 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 安裝套件
+        run: pip install requests pandas lxml html5lib beautifulsoup4
+
+      - name: 抓 2026-07-29 櫃買指數
+        shell: bash
+        run: |
+          python - <<'PY'
+          import requests, pandas as pd, re
+          from io import StringIO
+
+          date_roc = "115/07/29"
+          urls = [
+              "https://www.tpex.org.tw/web/stock/aftertrading/all_daily_index/sectinx_print.php",
+              "https://www.tpex.org.tw/web/stock/aftertrading/all_daily_index/sectinx_result.php",
+          ]
+          params = {"l":"zh-tw","d":date_roc,"s":"undefined"}
+          headers = {"User-Agent":"Mozilla/5.0","Referer":"https://www.tpex.org.tw/"}
+
+          for url in urls:
+              print("\n============================================================")
+              print("測試 URL:", url)
+              try:
+                  r=requests.get(url,params=params,headers=headers,timeout=30)
+                  print("HTTP:",r.status_code)
+                  print("實際 URL:",r.url)
+                  print("內容長度:",len(r.text))
+                  if r.status_code != 200:
+                      continue
+
+                  print("前500字:")
+                  print(re.sub(r"\s+"," ",r.text[:500]))
+
+                  try:
+                      tables=pd.read_html(StringIO(r.text))
+                  except Exception as e:
+                      print("read_html 失敗:",repr(e))
+                      continue
+
+                  print("表格數:",len(tables))
+                  found=False
+                  for i,t in enumerate(tables):
+                      print(f"\n--- table {i}, shape={t.shape} ---")
+                      print(t.head(15).to_string(index=False))
+
+                      # 搜尋「櫃買指數」那一列，並列出所有值
+                      for _,row in t.iterrows():
+                          vals=[str(x) for x in row.tolist()]
+                          joined=" | ".join(vals)
+                          if "櫃買指數" in joined and "產業" not in joined:
+                              print("\n✅ 找到可能的櫃買指數列：")
+                              print(joined)
+                              found=True
+
+                  if found:
+                      print("\n請把『✅ 找到可能的櫃買指數列』貼給 ChatGPT。")
+                      break
+              except Exception as e:
+                  print("請求失敗:",repr(e))
+          PY
