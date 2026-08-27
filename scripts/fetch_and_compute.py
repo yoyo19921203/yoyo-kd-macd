@@ -122,33 +122,90 @@ def fetch_twse(d: date):
 
 
 def fetch_tpex(d: date):
+    """
+    抓「指定日期」的上櫃股票歷史日行情。
+    使用 TPEx 可帶民國日期的 historical endpoint，而不是只回最新快照的 daily_close_quotes。
+    """
     roc = to_roc_date(d)
-    url = f"https://www.tpex.org.tw/web/stock/aftertrading/daily_close_quotes/stk_quote_result.php?l=zh-tw&d={roc}"
+    url = (
+        "https://www.tpex.org.tw/web/stock/aftertrading/"
+        "otc_quotes_no1430/stk_wn1430_result.php"
+        f"?l=zh-tw&d={roc}&se=EW&o=json"
+    )
     data = get_json_with_retry(url)
     if not data:
         return []
+
     rows = []
-    for t in data.get("tables", []):
+    tables = data.get("tables", [])
+    if not tables:
+        print(f"TPEx {d} 沒有 tables")
+        return []
+
+    # 找包含代號與收盤的資料表，不硬寫 table index。
+    target_table = None
+    for t in tables:
         fields = t.get("fields", [])
-        if "代號" in fields and "收盤" in fields:
-            idx = {f: i for i, f in enumerate(fields)}
-            for row in t.get("data", []):
-                try:
-                    code = row[idx["代號"]].strip()
-                    name = row[idx["名稱"]].strip()
-                    if not (len(code) == 4 and code.isdigit()):
-                        continue
-                    o, h, l, c = (_num(row, idx, k) for k in ("開盤", "最高", "最低", "收盤"))
-                    vol_shares = _num(row, idx, "成交股數")
-                    if None in (o, h, l, c) or vol_shares is None:
-                        continue
-                    rows.append({
-                        "market": "上櫃", "code": code, "name": name,
-                        "open": o, "high": h, "low": l, "close": c,
-                        "volume": vol_shares / 1000.0,
-                    })
-                except (KeyError, IndexError):
-                    continue
+        if ("代號" in fields or "證券代號" in fields) and ("收盤" in fields or "收盤價" in fields):
+            target_table = t
+            break
+
+    if not target_table:
+        print(f"TPEx {d} 找不到日行情表")
+        return []
+
+    fields = target_table.get("fields", [])
+    idx = {f: i for i, f in enumerate(fields)}
+
+    def pick(*names):
+        for n in names:
+            if n in idx:
+                return n
+        return None
+
+    code_key = pick("代號", "證券代號")
+    name_key = pick("名稱", "證券名稱")
+    open_key = pick("開盤", "開盤價")
+    high_key = pick("最高", "最高價")
+    low_key = pick("最低", "最低價")
+    close_key = pick("收盤", "收盤價")
+    vol_key = pick("成交股數", "成交量")
+
+    required = [code_key, name_key, open_key, high_key, low_key, close_key, vol_key]
+    if any(x is None for x in required):
+        print(f"TPEx {d} 欄位不足：{fields}")
+        return []
+
+    for row in target_table.get("data", []):
+        try:
+            code = str(row[idx[code_key]]).strip()
+            name = str(row[idx[name_key]]).strip()
+            if not (len(code) == 4 and code.isdigit()):
+                continue
+
+            o = _num(row, idx, open_key)
+            h = _num(row, idx, high_key)
+            l = _num(row, idx, low_key)
+            c = _num(row, idx, close_key)
+            vol_shares = _num(row, idx, vol_key)
+
+            if None in (o, h, l, c) or vol_shares is None:
+                continue
+
+            rows.append({
+                "market": "上櫃",
+                "code": code,
+                "name": name,
+                "open": o,
+                "high": h,
+                "low": l,
+                "close": c,
+                "volume": vol_shares / 1000.0,
+            })
+        except (KeyError, IndexError, TypeError):
+            continue
+
+    print(f"TPEx {d}：抓到 {len(rows)} 檔上櫃股票")
     return rows
 
 
@@ -184,6 +241,65 @@ def backfill(days: int):
         d -= timedelta(days=1)
     print(f"回補完成：成功取得/已有 {got} 個交易日資料，共檢查 {checked} 個日曆日")
 
+
+
+def repair_tpex(days: int):
+    """
+    修補最近 N 個「已有 raw 日期檔」中的上櫃資料。
+    保留原本上市資料，只把該日期的上櫃 rows 重新抓回後合併。
+    """
+    if not os.path.isdir(RAW_DIR):
+        print("找不到 data/raw，請先有歷史資料")
+        return
+
+    files = sorted(
+        [fn for fn in os.listdir(RAW_DIR) if fn.endswith(".json")],
+        reverse=True
+    )[:days]
+
+    repaired = 0
+    failed = 0
+
+    for fn in files:
+        path = f"{RAW_DIR}/{fn}"
+        with open(path, encoding="utf-8") as f:
+            snap = json.load(f)
+
+        dstr = snap.get("date", fn.replace(".json", ""))
+        try:
+            d = date(int(dstr[:4]), int(dstr[4:6]), int(dstr[6:8]))
+        except Exception:
+            print(f"略過無效日期檔：{fn}")
+            continue
+
+        tpex_rows = fetch_tpex(d)
+        if not tpex_rows:
+            print(f"⚠️ {dstr} 上櫃抓取失敗，保留原檔不動")
+            failed += 1
+            time.sleep(1.0)
+            continue
+
+        old_rows = snap.get("rows", [])
+        twse_rows = [r for r in old_rows if r.get("market") != "上櫃"]
+
+        # 以 market+code 去重
+        merged = {}
+        for r in twse_rows + tpex_rows:
+            merged[(r.get("market"), r.get("code"))] = r
+
+        snap["rows"] = list(merged.values())
+
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(snap, f, ensure_ascii=False)
+
+        repaired += 1
+        print(
+            f"✅ {dstr} 修補完成：上市 {len(twse_rows)} 檔 + "
+            f"上櫃 {len(tpex_rows)} 檔 = {len(snap['rows'])} 檔"
+        )
+        time.sleep(1.0)
+
+    print(f"TPEx 修補完成：成功 {repaired} 日，失敗 {failed} 日")
 
 def fetch_today():
     os.makedirs(RAW_DIR, exist_ok=True)
@@ -501,7 +617,19 @@ def main():
     ap.add_argument("--backfill", type=int, default=0)
     ap.add_argument("--report-date", type=str, default="")
     ap.add_argument("--backtest", action="store_true")
+    ap.add_argument("--repair-tpex", type=int, default=0, help="修補最近 N 個 raw 日期檔的上櫃歷史資料")
     args = ap.parse_args()
+
+    if args.repair_tpex:
+        repair_tpex(args.repair_tpex)
+        df, _ = load_history()
+        if not df.empty:
+            for target in sorted(df["date"].dt.strftime("%Y%m%d").unique())[-30:]:
+                rows = build_report(target)
+                if rows is not None:
+                    update_docs(target, rows)
+                    print(f"{target} 修補後重新產生 {len(rows)} 檔")
+        return
 
     if args.backtest:
         run_backtest()
