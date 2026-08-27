@@ -315,8 +315,15 @@ def backfill(days: int):
 
 def repair_tpex(days: int):
     """
-    修補最近 N 個「已有 raw 日期檔」中的上櫃資料。
-    保留原本上市資料，只把該日期的上櫃 rows 重新抓回後合併。
+    修補最近 N 個 raw 日期檔的 TPEx 上櫃歷史資料。
+
+    規則：
+    1. TPEx 指定日期有歷史行情：
+       保留原本上市資料，移除舊上櫃資料，改寫成該日真正的上櫃歷史行情。
+    2. TPEx 沒資料，且該 raw 檔也沒有上市交易資料：
+       視為週末/休市日，清掉可能被錯誤快照污染的上櫃 rows。
+    3. TPEx 沒資料，但該日有上市交易資料：
+       視為異常，保留原檔並警告，不亂刪。
     """
     if not os.path.isdir(RAW_DIR):
         print("找不到 data/raw，請先有歷史資料")
@@ -328,6 +335,7 @@ def repair_tpex(days: int):
     )[:days]
 
     repaired = 0
+    cleaned_closed = 0
     failed = 0
 
     for fn in files:
@@ -342,34 +350,55 @@ def repair_tpex(days: int):
             print(f"略過無效日期檔：{fn}")
             continue
 
-        tpex_rows = fetch_tpex(d)
-        if not tpex_rows:
-            print(f"⚠️ {dstr} 上櫃抓取失敗，保留原檔不動")
-            failed += 1
-            time.sleep(1.0)
-            continue
-
         old_rows = snap.get("rows", [])
         twse_rows = [r for r in old_rows if r.get("market") != "上櫃"]
+        old_tpex_rows = [r for r in old_rows if r.get("market") == "上櫃"]
 
-        # 以 market+code 去重
-        merged = {}
-        for r in twse_rows + tpex_rows:
-            merged[(r.get("market"), r.get("code"))] = r
+        tpex_rows = fetch_tpex(d)
 
-        snap["rows"] = list(merged.values())
+        if tpex_rows:
+            merged = {}
+            for r in twse_rows + tpex_rows:
+                merged[(r.get("market"), r.get("code"))] = r
 
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(snap, f, ensure_ascii=False)
+            snap["rows"] = list(merged.values())
 
-        repaired += 1
-        print(
-            f"✅ {dstr} 修補完成：上市 {len(twse_rows)} 檔 + "
-            f"上櫃 {len(tpex_rows)} 檔 = {len(snap['rows'])} 檔"
-        )
-        time.sleep(1.0)
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(snap, f, ensure_ascii=False)
 
-    print(f"TPEx 修補完成：成功 {repaired} 日，失敗 {failed} 日")
+            repaired += 1
+            print(
+                f"✅ {dstr} 交易日修補完成：上市 {len(twse_rows)} 檔 + "
+                f"上櫃 {len(tpex_rows)} 檔 = {len(snap['rows'])} 檔"
+            )
+        else:
+            # 沒有 TPEx 歷史資料，而且這天連 TWSE 也沒有股票資料，
+            # 就視為休市日。把可能被舊錯誤快照塞進去的上櫃 rows 清掉。
+            if len(twse_rows) == 0:
+                if old_tpex_rows:
+                    snap["rows"] = []
+                    with open(path, "w", encoding="utf-8") as f:
+                        json.dump(snap, f, ensure_ascii=False)
+                    cleaned_closed += 1
+                    print(
+                        f"🧹 {dstr} 判定為休市日：已清除錯誤上櫃快照 "
+                        f"{len(old_tpex_rows)} 檔"
+                    )
+                else:
+                    print(f"休市日 {dstr}：本來就沒有 rows")
+            else:
+                failed += 1
+                print(
+                    f"⚠️ {dstr} 有上市 {len(twse_rows)} 檔但 TPEx 抓不到，"
+                    f"視為異常，保留原檔不動"
+                )
+
+        time.sleep(0.8)
+
+    print(
+        f"TPEx 修補完成：交易日成功 {repaired} 日，"
+        f"休市日清理 {cleaned_closed} 日，異常失敗 {failed} 日"
+    )
 
 def fetch_today():
     os.makedirs(RAW_DIR, exist_ok=True)
