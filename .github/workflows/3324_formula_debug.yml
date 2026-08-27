@@ -1,0 +1,121 @@
+name: 3324 公式反推診斷
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 取出程式碼
+        uses: actions/checkout@v4
+
+      - name: 設定 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 安裝套件
+        run: pip install -r requirements.txt
+
+      - name: 反推 3324 均量與 RS
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os, sys, inspect
+          import pandas as pd
+          import numpy as np
+
+          sys.path.insert(0, os.path.join(os.getcwd(), "scripts"))
+          import fetch_and_compute as fc
+
+          CODE = "3324"
+          TARGET = pd.Timestamp("2026-08-26")
+
+          df, index_map = fc.load_history()
+          g = df[(df["code"].astype(str) == CODE) & (df["date"] <= TARGET)].sort_values("date").copy()
+
+          if g.empty:
+              raise SystemExit("找不到 3324")
+
+          print("="*100)
+          print("A. 20日均量公式反推")
+          print("="*100)
+
+          v = pd.to_numeric(g["volume"], errors="coerce")
+          tests = {
+              "含8/26最近20日": v.tail(20).mean(),
+              "不含8/26、往前20日": v.iloc[:-1].tail(20).mean(),
+              "含8/26最近21日": v.tail(21).mean(),
+              "不含8/26、往前19日": v.iloc[:-1].tail(19).mean(),
+              "含8/26最近19日": v.tail(19).mean(),
+          }
+          for k,val in tests.items():
+              print(f"{k:24s} = {val:.4f}")
+          print("凱基目標值                 = 2809")
+
+          print("\n最近21個交易日成交量：")
+          tmp = g.tail(21)[["date","close","volume"]].copy()
+          tmp["date"] = tmp["date"].dt.strftime("%Y-%m-%d")
+          print(tmp.to_string(index=False))
+
+          print("\n"+"="*100)
+          print("B. 正式程式裡 RS 相關原始碼")
+          print("="*100)
+          try:
+              src = inspect.getsource(fc)
+              lines = src.splitlines()
+              hits = []
+              for i,line in enumerate(lines):
+                  low = line.lower()
+                  if ("rs5" in low or "rs20" in low or "relative" in low or "index_map" in low):
+                      a=max(0,i-4); b=min(len(lines),i+5)
+                      hits.append((a,b))
+              merged=[]
+              for a,b in hits:
+                  if merged and a <= merged[-1][1]:
+                      merged[-1]=(merged[-1][0],max(merged[-1][1],b))
+                  else:
+                      merged.append((a,b))
+              for a,b in merged:
+                  print(f"\n--- source lines {a+1}-{b} ---")
+                  for j in range(a,b):
+                      print(f"{j+1:4d}: {lines[j]}")
+          except Exception as e:
+              print("無法讀取 source:", repr(e))
+
+          print("\n"+"="*100)
+          print("C. index_map 結構")
+          print("="*100)
+          print("type:", type(index_map))
+          try:
+              print("len:", len(index_map))
+          except:
+              pass
+
+          if isinstance(index_map, dict):
+              keys=list(index_map.keys())
+              print("前10個 keys:", keys[:10])
+              print("後10個 keys:", keys[-10:])
+              for k in keys[-5:]:
+                  print("sample", repr(k), "=>", repr(index_map[k]))
+
+          print("\n"+"="*100)
+          print("D. 個股單純報酬（確認不是凱基 RS）")
+          print("="*100)
+          c = pd.to_numeric(g["close"], errors="coerce")
+          for n in [5,20]:
+              if len(c)>n:
+                  r=(c.iloc[-1]/c.iloc[-1-n]-1)*100
+                  print(f"{n}交易日前收盤 → 8/26 = {r:.4f}%")
+          print("凱基 RS5  = +5.87%")
+          print("凱基 RS20 = +7.35%")
+
+          print("\n"+"="*100)
+          print("請把 A、B、C、D 全部結果貼給 ChatGPT。")
+          print("="*100)
+          PY
