@@ -43,7 +43,7 @@ def get_json_with_retry(url: str, retries: int = 4, base_wait: float = 1.5):
 
 # MACD 參數：9 / 12 / 130
 # 依策略定義：Signal=9、Fast EMA=12、Slow EMA=130。
-# 測試版：Weighted Close → DIF=EMA12-EMA130 → MACD=EMA9(DIF)；篩選條件為 MACD > 0。
+# MACD130 = EMA12 - EMA130；篩選條件為 MACD130 > 0。
 MACD_SIGNAL = 9
 MACD_FAST = 12
 MACD_SLOW = 130
@@ -226,23 +226,12 @@ def compute_kd(g: pd.DataFrame):
     return k, dd
 
 
-def compute_macd(g: pd.DataFrame):
-    """
-    測試版 MACD(9,12,130)
-    Weighted Close = (2*Close + High + Low) / 4
-    DIF = EMA12(Weighted Close) - EMA130(Weighted Close)
-    MACD = EMA9(DIF)
-    OSC = DIF - MACD
-
-    本測試版的篩選條件：MACD > 0
-    """
-    weighted_close = (g["close"] * 2 + g["high"] + g["low"]) / 4
-    ema_fast = weighted_close.ewm(span=MACD_FAST, adjust=False).mean()
-    ema_slow = weighted_close.ewm(span=MACD_SLOW, adjust=False).mean()
-    dif = ema_fast - ema_slow
-    macd_signal = dif.ewm(span=MACD_SIGNAL, adjust=False).mean()
-    osc = dif - macd_signal
-    return dif, macd_signal, osc
+def compute_macd(close: pd.Series):
+    ema_fast = close.ewm(span=MACD_FAST, adjust=False).mean()
+    ema_slow = close.ewm(span=MACD_SLOW, adjust=False).mean()
+    macd = ema_fast - ema_slow
+    signal = macd.ewm(span=MACD_SIGNAL, adjust=False).mean()
+    return macd, signal
 
 
 def build_report(target_date_str: str, lookback_cross_days: int = 5):
@@ -250,13 +239,6 @@ def build_report(target_date_str: str, lookback_cross_days: int = 5):
     if df.empty:
         print("目前沒有任何歷史資料，請先跑 --backfill")
         return None
-
-    target_dt = pd.to_datetime(target_date_str, format="%Y%m%d")
-    df = df[df["date"] <= target_dt].copy()
-    if df.empty:
-        print(f"{target_date_str} 之前沒有歷史資料")
-        return None
-
     df = df.sort_values(["code", "date"])
     out_rows = []
     for code, g in df.groupby("code"):
@@ -264,7 +246,7 @@ def build_report(target_date_str: str, lookback_cross_days: int = 5):
         if g["date"].iloc[-1].strftime("%Y%m%d") != target_date_str:
             continue
         k, dd = compute_kd(g)
-        dif, macd_signal, osc = compute_macd(g)
+        macd, _signal = compute_macd(g["close"])
         gap = k - dd
         cross = (k > dd) & (k.shift(1) <= dd.shift(1)) & k.notna() & dd.notna() & k.shift(1).notna()
         if not cross.any():
@@ -304,12 +286,9 @@ def build_report(target_date_str: str, lookback_cross_days: int = 5):
             "vol_ok": bool(vol5 > vol10) if pd.notna(vol5) and pd.notna(vol10) else False,
             "vol20": round(vol20, 0) if pd.notna(vol20) else None,
             "kd3_strong": widening,
-            # 測試版：MACD130 欄位改代表「MACD 線（Signal 9）」而不是 DIF
-            "dif130": round(float(dif.iloc[-1]), 6) if pd.notna(dif.iloc[-1]) else None,
-            "macd130": round(float(macd_signal.iloc[-1]), 6) if pd.notna(macd_signal.iloc[-1]) else None,
-            "osc130": round(float(osc.iloc[-1]), 6) if pd.notna(osc.iloc[-1]) else None,
-            "macd130_positive": bool(macd_signal.iloc[-1] > 0) if pd.notna(macd_signal.iloc[-1]) else False,
-            "macd_positive": bool(macd_signal.iloc[-1] > 0) if pd.notna(macd_signal.iloc[-1]) else False,  # 相容舊前端
+            "macd130": round(float(macd.iloc[-1]), 6) if pd.notna(macd.iloc[-1]) else None,
+            "macd130_positive": bool(macd.iloc[-1] > 0) if pd.notna(macd.iloc[-1]) else False,
+            "macd_positive": bool(macd.iloc[-1] > 0) if pd.notna(macd.iloc[-1]) else False,  # 相容舊前端
             "rs5": rs(5), "rs20": rs(20),
         })
     out_rows.sort(key=lambda r: (not r["kd3_strong"], not r["macd130_positive"], not r["vol_ok"]))
@@ -334,38 +313,17 @@ def update_docs(target_date_str: str, rows):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--backfill", type=int, default=0, help="回補最近 N 個交易日歷史")
-    ap.add_argument("--report-date", type=str, default="", help="只重算指定日期，例如 20260826")
+    ap.add_argument("--backfill", type=int, default=0, help="回補最近 N 個日曆天歷史")
     args = ap.parse_args()
-
-    if args.report_date:
-        target = args.report_date
-        rows = build_report(target)
-        if rows is not None:
-            update_docs(target, rows)
-            print(f"{target} 產生 {len(rows)} 檔觀察名單")
-        return
-
     if args.backfill:
         backfill(args.backfill)
-
-        # 重算最近 30 個已有交易日，方便直接比較歷史日期（例如 20260826）
-        df, _ = load_history()
-        if df.empty:
-            return
-        report_dates = sorted(df["date"].dt.strftime("%Y%m%d").unique())[-30:]
-        for target in report_dates:
-            rows = build_report(target)
-            if rows is not None:
-                update_docs(target, rows)
-                print(f"{target} 重新產生 {len(rows)} 檔觀察名單")
     else:
         fetch_today()
-        target = date.today().strftime("%Y%m%d")
-        rows = build_report(target)
-        if rows is not None:
-            update_docs(target, rows)
-            print(f"{target} 產生 {len(rows)} 檔觀察名單")
+    target = date.today().strftime("%Y%m%d")
+    rows = build_report(target)
+    if rows is not None:
+        update_docs(target, rows)
+        print(f"{target} 產生 {len(rows)} 檔觀察名單")
 
 
 if __name__ == "__main__":
