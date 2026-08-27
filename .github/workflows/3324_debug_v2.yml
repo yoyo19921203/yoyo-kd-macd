@@ -1,0 +1,100 @@
+name: 3324 歷史資料診斷 v2
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 取出程式碼
+        uses: actions/checkout@v4
+
+      - name: 設定 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 安裝套件
+        run: pip install -r requirements.txt
+
+      - name: 用正式程式資料讀取邏輯診斷 3324
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          import sys
+          import pandas as pd
+
+          sys.path.insert(0, os.path.join(os.getcwd(), "scripts"))
+
+          from fetch_and_compute import load_history
+
+          CODE = "3324"
+          TARGET = pd.to_datetime("20260826", format="%Y%m%d")
+
+          df, index_map = load_history()
+
+          if df.empty:
+              raise SystemExit("❌ load_history() 回傳空資料")
+
+          sub = (
+              df[(df["code"].astype(str) == CODE) & (df["date"] <= TARGET)]
+              .sort_values("date")
+              .copy()
+          )
+
+          if sub.empty:
+              raise SystemExit("❌ 正式 load_history() 仍找不到 3324")
+
+          print("=" * 110)
+          print("3324 雙鴻｜正式 load_history() 診斷")
+          print("有效資料筆數：", len(sub))
+          print("第一天：", sub["date"].iloc[0].strftime("%Y-%m-%d"))
+          print("最後一天：", sub["date"].iloc[-1].strftime("%Y-%m-%d"))
+          print("市場：", sub["market"].iloc[-1] if "market" in sub.columns else "N/A")
+          print("=" * 110)
+
+          # 直接用正式歷史資料欄位重算最基本的資料層指標
+          sub["vol5"] = sub["volume"].rolling(5).mean()
+          sub["vol20"] = sub["volume"].rolling(20).mean()
+          sub["rs5_close"] = (sub["close"] / sub["close"].shift(5) - 1) * 100
+          sub["rs20_close"] = (sub["close"] / sub["close"].shift(20) - 1) * 100
+
+          show_cols = [
+              "date", "open", "high", "low", "close", "volume",
+              "vol5", "vol20", "rs5_close", "rs20_close"
+          ]
+          show = sub.tail(30)[show_cols].copy()
+          show["date"] = show["date"].dt.strftime("%Y-%m-%d")
+
+          for c in show_cols[1:]:
+              show[c] = pd.to_numeric(show[c], errors="coerce").round(4)
+
+          print("\n最近 30 個交易日原始資料：")
+          print(show.to_string(index=False))
+
+          last = sub.iloc[-1]
+
+          print("\n" + "=" * 110)
+          print("Yoyo 原始資料直接重算（截至 2026-08-26）")
+          print(f"收盤價      : {last['close']}")
+          print(f"成交量      : {last['volume']}")
+          print(f"5日均量     : {last['vol5']:.4f}")
+          print(f"20日均量    : {last['vol20']:.4f}")
+          print(f"RS5(close)  : {last['rs5_close']:.4f}%")
+          print(f"RS20(close) : {last['rs20_close']:.4f}%")
+
+          print("\n凱基 2026-08-26 畫面對照值：")
+          print("收盤價      : 1075.00")
+          print("20日均量    : 2809")
+          print("RS5         : +5.87%")
+          print("RS20        : +7.35%")
+
+          print("\n請把『最近30個交易日』＋『最後對照值』整段貼給 ChatGPT。")
+          print("=" * 110)
+          PY
