@@ -10,6 +10,7 @@ Yoyo KD + MACD 多策略選股觀察
 4. 底部確認：轉強 + 接近/站回 MA20 + 量能改善
 5. --report-date YYYYMMDD 指定日期重算
 6. --backtest 回測底部策略 5/10/20 日後表現
+7. RS 基準：上市使用 TWSE；上櫃使用 TPEx 櫃買指數
 """
 import argparse
 import json
@@ -279,14 +280,38 @@ def fetch_tpex(d: date):
     return rows
 
 
+def fetch_tpex_index(d: date):
+    """抓指定日期的官方櫃買指數收盤值，供上櫃股票 RS5 / RS20 使用。"""
+    ymd = d.strftime("%Y/%m/%d")
+    url = (
+        "https://www.tpex.org.tw/www/zh-tw/indexInfo/sectinx"
+        f"?date={ymd}&response=json"
+    )
+    data = get_json_with_retry(url)
+    if not data or data.get("stat") != "ok":
+        return None
+
+    for table in data.get("tables", []):
+        for row in table.get("data", []):
+            if not row:
+                continue
+            if str(row[0]).strip() == "櫃買指數":
+                try:
+                    return float(str(row[1]).replace(",", "").strip())
+                except (IndexError, TypeError, ValueError):
+                    return None
+    return None
+
+
 def fetch_one_day(d: date):
     twse_rows, twse_index = fetch_twse(d)
     tpex_rows = fetch_tpex(d)
+    tpex_index = fetch_tpex_index(d) if tpex_rows else None
     if not twse_rows and not tpex_rows:
         return None
     return {
         "date": d.strftime("%Y%m%d"),
-        "index": {"TWSE": twse_index},
+        "index": {"TWSE": twse_index, "TPEx": tpex_index},
         "rows": twse_rows + tpex_rows,
     }
 
@@ -355,6 +380,7 @@ def repair_tpex(days: int):
         old_tpex_rows = [r for r in old_rows if r.get("market") == "上櫃"]
 
         tpex_rows = fetch_tpex(d)
+        tpex_index = fetch_tpex_index(d) if tpex_rows else None
 
         if tpex_rows:
             merged = {}
@@ -362,6 +388,8 @@ def repair_tpex(days: int):
                 merged[(r.get("market"), r.get("code"))] = r
 
             snap["rows"] = list(merged.values())
+            snap.setdefault("index", {})
+            snap["index"]["TPEx"] = tpex_index
 
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(snap, f, ensure_ascii=False)
@@ -415,8 +443,9 @@ def fetch_today():
 
 def load_history():
     if not os.path.isdir(RAW_DIR):
-        return pd.DataFrame(), {}
-    frames, index_map = [], {}
+        return pd.DataFrame(), {"TWSE": {}, "TPEx": {}}
+    frames = []
+    index_map = {"TWSE": {}, "TPEx": {}}
     for fn in sorted(os.listdir(RAW_DIR)):
         if not fn.endswith(".json"):
             continue
@@ -425,8 +454,13 @@ def load_history():
         d = snap["date"]
         for row in snap["rows"]:
             frames.append({**row, "date": d})
-        if snap.get("index", {}).get("TWSE"):
-            index_map[d] = snap["index"]["TWSE"]
+
+        indices = snap.get("index", {})
+        if indices.get("TWSE"):
+            index_map["TWSE"][d] = indices["TWSE"]
+        if indices.get("TPEx"):
+            index_map["TPEx"][d] = indices["TPEx"]
+
     if not frames:
         return pd.DataFrame(), index_map
     df = pd.DataFrame(frames)
@@ -606,7 +640,10 @@ def build_report(target_date_str: str, old_lookback_days: int = 5):
         def idx_return(n):
             if len(g) <= n:
                 return None
-            a, b = index_map.get(dates_list[-1]), index_map.get(dates_list[-1-n])
+            benchmark = "TPEx" if r["market"] == "上櫃" else "TWSE"
+            benchmark_map = index_map.get(benchmark, {})
+            a = benchmark_map.get(dates_list[-1])
+            b = benchmark_map.get(dates_list[-1-n])
             if not a or not b:
                 return None
             return (a / b - 1) * 100
