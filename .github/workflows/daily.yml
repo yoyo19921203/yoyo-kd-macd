@@ -2,7 +2,7 @@ name: 每日更新 KD+MACD 觀察名單
 
 on:
   schedule:
-    # UTC 07:30 = 台灣時間 15:30（平日收盤後），每個交易日跑一次
+    # UTC 07:30 = 台灣時間 15:30（平日收盤後）
     - cron: "30 7 * * 1-5"
 
   workflow_dispatch:
