@@ -123,8 +123,20 @@ def fetch_twse(d: date):
 
 def fetch_tpex(d: date):
     """
-    抓「指定日期」的上櫃股票歷史日行情。
-    使用 TPEx 可帶民國日期的 historical endpoint，而不是只回最新快照的 daily_close_quotes。
+    抓指定日期的 TPEx 上櫃歷史日行情。
+
+    TPEx historical endpoint 的 JSON 主要資料通常在 tables[0]。
+    欄位常見順序：
+      0 代號
+      1 名稱
+      2 收盤
+      3 漲跌
+      4 開盤
+      5 最高
+      6 最低
+      7 成交股數
+    因此這裡不再要求欄位名稱必須「完全等於」特定字串，
+    避免 TPEx 回傳欄位名稱帶空白/HTML/不同文字時整批失敗。
     """
     roc = to_roc_date(d)
     url = (
@@ -134,78 +146,136 @@ def fetch_tpex(d: date):
     )
     data = get_json_with_retry(url)
     if not data:
+        print(f"TPEx {d}：沒有 JSON 回應")
         return []
 
-    rows = []
     tables = data.get("tables", [])
     if not tables:
-        print(f"TPEx {d} 沒有 tables")
+        print(f"TPEx {d}：JSON 沒有 tables；keys={list(data.keys())}")
         return []
 
-    # 找包含代號與收盤的資料表，不硬寫 table index。
-    target_table = None
-    for t in tables:
-        fields = t.get("fields", [])
-        if ("代號" in fields or "證券代號" in fields) and ("收盤" in fields or "收盤價" in fields):
-            target_table = t
-            break
-
-    if not target_table:
-        print(f"TPEx {d} 找不到日行情表")
-        return []
-
+    # 歷史日行情主表通常就是 tables[0]
+    target_table = tables[0]
     fields = target_table.get("fields", [])
-    idx = {f: i for i, f in enumerate(fields)}
+    raw_rows = target_table.get("data", [])
 
-    def pick(*names):
-        for n in names:
-            if n in idx:
-                return n
-        return None
-
-    code_key = pick("代號", "證券代號")
-    name_key = pick("名稱", "證券名稱")
-    open_key = pick("開盤", "開盤價")
-    high_key = pick("最高", "最高價")
-    low_key = pick("最低", "最低價")
-    close_key = pick("收盤", "收盤價")
-    vol_key = pick("成交股數", "成交量")
-
-    required = [code_key, name_key, open_key, high_key, low_key, close_key, vol_key]
-    if any(x is None for x in required):
-        print(f"TPEx {d} 欄位不足：{fields}")
+    if not raw_rows:
+        print(f"TPEx {d}：tables[0] 沒有 data；fields={fields}")
         return []
 
-    for row in target_table.get("data", []):
+    def clean_num(v):
+        if v is None:
+            return None
+        s = str(v).replace(",", "").strip()
+        # 清掉可能混入的 HTML 標記
+        import re
+        s = re.sub(r"<[^>]*>", "", s).strip()
+        if s in ("", "--", "---", "----", "N/A"):
+            return None
         try:
-            code = str(row[idx[code_key]]).strip()
-            name = str(row[idx[name_key]]).strip()
-            if not (len(code) == 4 and code.isdigit()):
+            return float(s)
+        except ValueError:
+            return None
+
+    def clean_text(v):
+        import re
+        return re.sub(r"<[^>]*>", "", str(v or "")).strip()
+
+    rows = []
+
+    # 第一優先：官方歷史行情目前通用的固定欄位順序。
+    if len(fields) >= 8:
+        for row in raw_rows:
+            if len(row) < 8:
+                continue
+            try:
+                code = clean_text(row[0])
+                name = clean_text(row[1])
+                if not (len(code) == 4 and code.isdigit()):
+                    continue
+
+                c = clean_num(row[2])
+                o = clean_num(row[4])
+                h = clean_num(row[5])
+                l = clean_num(row[6])
+                vol_shares = clean_num(row[7])
+
+                if None in (o, h, l, c) or vol_shares is None:
+                    continue
+
+                rows.append({
+                    "market": "上櫃",
+                    "code": code,
+                    "name": name,
+                    "open": o,
+                    "high": h,
+                    "low": l,
+                    "close": c,
+                    "volume": vol_shares / 1000.0,
+                })
+            except (IndexError, TypeError):
                 continue
 
-            o = _num(row, idx, open_key)
-            h = _num(row, idx, high_key)
-            l = _num(row, idx, low_key)
-            c = _num(row, idx, close_key)
-            vol_shares = _num(row, idx, vol_key)
+    # 若固定位置完全抓不到，才用「模糊欄位名稱」備援。
+    if not rows and fields:
+        norm_fields = []
+        import re
+        for f in fields:
+            s = re.sub(r"<[^>]*>", "", str(f or ""))
+            s = s.replace(" ", "").replace("\n", "").strip()
+            norm_fields.append(s)
 
-            if None in (o, h, l, c) or vol_shares is None:
-                continue
+        def find_col(*keywords):
+            for i, f in enumerate(norm_fields):
+                if any(k in f for k in keywords):
+                    return i
+            return None
 
-            rows.append({
-                "market": "上櫃",
-                "code": code,
-                "name": name,
-                "open": o,
-                "high": h,
-                "low": l,
-                "close": c,
-                "volume": vol_shares / 1000.0,
-            })
-        except (KeyError, IndexError, TypeError):
-            continue
+        ci = find_col("代號")
+        ni = find_col("名稱")
+        close_i = find_col("收盤")
+        open_i = find_col("開盤")
+        high_i = find_col("最高")
+        low_i = find_col("最低")
+        vol_i = find_col("成交股數", "成交量")
 
-    print(f"TPEx {d}：抓到 {len(rows)} 檔上櫃股票")
+        if None not in (ci, ni, close_i, open_i, high_i, low_i, vol_i):
+            for row in raw_rows:
+                try:
+                    code = clean_text(row[ci])
+                    name = clean_text(row[ni])
+                    if not (len(code) == 4 and code.isdigit()):
+                        continue
+                    c = clean_num(row[close_i])
+                    o = clean_num(row[open_i])
+                    h = clean_num(row[high_i])
+                    l = clean_num(row[low_i])
+                    vol_shares = clean_num(row[vol_i])
+                    if None in (o, h, l, c) or vol_shares is None:
+                        continue
+                    rows.append({
+                        "market": "上櫃",
+                        "code": code,
+                        "name": name,
+                        "open": o,
+                        "high": h,
+                        "low": l,
+                        "close": c,
+                        "volume": vol_shares / 1000.0,
+                    })
+                except (IndexError, TypeError):
+                    continue
+
+    print(
+        f"TPEx {d}：fields={len(fields)} 欄、raw={len(raw_rows)} 列、"
+        f"成功解析 {len(rows)} 檔上櫃股票"
+    )
+    if rows:
+        sample = ", ".join(f"{r['code']} {r['name']}" for r in rows[:5])
+        print(f"TPEx {d} 範例：{sample}")
+    else:
+        print(f"TPEx {d} 解析失敗；fields={fields[:12]}")
+
     return rows
 
 
