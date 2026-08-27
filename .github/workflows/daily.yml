@@ -2,8 +2,9 @@ name: 每日更新 KD+MACD 觀察名單
 
 on:
   schedule:
-    # UTC 07:30 = 台灣時間 15:30（平日收盤後），每個交易日跑一次
+    # UTC 07:30 = 台灣時間 15:30（平日收盤後）
     - cron: "30 7 * * 1-5"
+
   workflow_dispatch:
     inputs:
       backfill_days:
@@ -11,12 +12,18 @@ on:
         required: false
         default: "0"
 
+      report_date:
+        description: "指定重算日期，例如 20260826；平常留空"
+        required: false
+        default: ""
+
 permissions:
   contents: write
 
 jobs:
   update:
     runs-on: ubuntu-latest
+
     steps:
       - name: 取出程式碼
         uses: actions/checkout@v4
@@ -29,15 +36,20 @@ jobs:
       - name: 安裝套件
         run: pip install -r requirements.txt
 
-      - name: 抓資料並計算指標（一般排程，只抓今天）
-        if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.backfill_days == '0' || github.event.inputs.backfill_days == '' }}
-        run: python scripts/fetch_and_compute.py
+      - name: 指定日期重算
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.report_date != '' }}
+        run: python scripts/fetch_and_compute.py --report-date ${{ github.event.inputs.report_date }}
 
-      - name: 抓資料並計算指標（手動回補歷史）
-        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.backfill_days != '0' && github.event.inputs.backfill_days != '' }}
+      - name: 手動回補歷史
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.report_date == '' && github.event.inputs.backfill_days != '0' && github.event.inputs.backfill_days != '' }}
         run: python scripts/fetch_and_compute.py --backfill ${{ github.event.inputs.backfill_days }}
 
+      - name: 一般排程／手動跑今天
+        if: ${{ github.event_name != 'workflow_dispatch' || (github.event.inputs.report_date == '' && (github.event.inputs.backfill_days == '0' || github.event.inputs.backfill_days == '')) }}
+        run: python scripts/fetch_and_compute.py
+
       - name: 提交更新
+        if: success()
         run: |
           git config user.name "kd-macd-bot"
           git config user.email "bot@users.noreply.github.com"
