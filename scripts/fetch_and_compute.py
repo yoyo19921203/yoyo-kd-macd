@@ -43,7 +43,7 @@ def get_json_with_retry(url: str, retries: int = 4, base_wait: float = 1.5):
 
 # MACD 參數：9 / 12 / 130
 # 依策略定義：Signal=9、Fast EMA=12、Slow EMA=130。
-# 測試版：Weighted Close → DIF=EMA12-EMA130 → MACD=EMA9(DIF)；篩選條件為 MACD > 0。
+# 凱基對齊測試版：Weighted Close → DIF=EMA12-EMA130 → MACD=EMA9(DIF)；篩選條件為 MACD > 0。
 MACD_SIGNAL = 9
 MACD_FAST = 12
 MACD_SLOW = 130
@@ -245,7 +245,7 @@ def compute_macd(g: pd.DataFrame):
     return dif, macd_signal, osc
 
 
-def build_report(target_date_str: str, lookback_cross_days: int = 5):
+def build_report(target_date_str: str, lookback_cross_days: int = 3):
     df, index_map = load_history()
     if df.empty:
         print("目前沒有任何歷史資料，請先跑 --backfill")
@@ -273,7 +273,12 @@ def build_report(target_date_str: str, lookback_cross_days: int = 5):
         days_since_cross = len(g) - 1 - last_cross_idx
         if days_since_cross > lookback_cross_days:
             continue
-        widening = bool(gap.iloc[-1] > gap.iloc[last_cross_idx]) if pd.notna(gap.iloc[-1]) else False
+        # 凱基對齊測試版：
+        # KD3強勢要求今天的 K-D 差距仍比前一交易日擴大。
+        if len(gap) >= 2 and pd.notna(gap.iloc[-1]) and pd.notna(gap.iloc[-2]):
+            widening = bool((k.iloc[-1] > dd.iloc[-1]) and (gap.iloc[-1] > gap.iloc[-2]))
+        else:
+            widening = False
         vol5 = g["volume"].rolling(5).mean().iloc[-1]
         vol10 = g["volume"].rolling(10).mean().iloc[-1]
         vol20 = g["volume"].rolling(20).mean().iloc[-1]
