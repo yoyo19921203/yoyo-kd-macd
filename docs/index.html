@@ -1,218 +1,102 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="robots" content="noindex, nofollow">
-<title>KD + MACD 個人選股觀察</title>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Yoyo 多策略選股觀察</title>
 <style>
-  :root { --bg:#0b1120; --card:#ffffff; --ink:#111827; --muted:#6b7280; --accent:#3b5bfd; --line:#e5e7eb; --good:#0a7c3a; --bad:#b91c1c; }
-  * { box-sizing: border-box; }
-  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; background:#f3f4f6; color:var(--ink); }
-  header { background:var(--bg); color:#fff; padding:28px 20px; }
-  header h1 { margin:0 0 6px; font-size:22px; }
-  header p { margin:0; color:#9aa4c0; font-size:13px; }
-  .wrap { max-width:1100px; margin:0 auto; padding:20px; }
-  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:18px 20px; margin-bottom:16px; }
-  .gate { max-width:420px; margin:80px auto; }
-  .gate input { width:100%; padding:12px 14px; font-size:20px; letter-spacing:4px; text-align:center; border:1px solid var(--line); border-radius:8px; margin:12px 0; }
-  .gate button, .btn { background:var(--accent); color:#fff; border:none; padding:10px 18px; border-radius:8px; font-size:14px; cursor:pointer; }
-  .gate .err { color:var(--bad); font-size:13px; min-height:18px; }
-  .filters { display:flex; flex-wrap:wrap; gap:10px; align-items:center; font-size:13px; }
-  .filters label { display:flex; align-items:center; gap:6px; background:#f3f4f6; padding:6px 10px; border-radius:999px; }
-  select { padding:6px 8px; border-radius:6px; border:1px solid var(--line); }
-  table { width:100%; border-collapse:collapse; font-size:13px; }
-  th, td { padding:8px 10px; border-bottom:1px solid var(--line); text-align:right; white-space:nowrap; }
-  th:nth-child(1), th:nth-child(2), td:nth-child(1), td:nth-child(2) { text-align:left; }
-  th { color:var(--muted); font-weight:600; position:sticky; top:0; background:#fff; }
-  .tablewrap { overflow-x:auto; }
-  .pos { color:var(--good); } .neg { color:var(--bad); }
-  .tag { display:inline-block; padding:1px 8px; border-radius:999px; font-size:11px; }
-  .tag.y { background:#e6f6ec; color:var(--good); } .tag.n { background:#f3f4f6; color:var(--muted); }
-  .disclaimer { font-size:12px; color:var(--muted); line-height:1.7; }
-  .count { color:var(--muted); font-size:13px; }
+:root{--bg:#0b1120;--card:#fff;--ink:#111827;--muted:#6b7280;--line:#e5e7eb;--blue:#315efb;--green:#08783d;--orange:#b45309;--red:#b91c1c}
+*{box-sizing:border-box} body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f3f4f6;color:var(--ink)}
+header{background:var(--bg);color:#fff;padding:22px 18px}.wrap{max-width:1280px;margin:auto;padding:16px}
+.card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px}
+.gate{max-width:420px;margin:80px auto}.gate input{width:100%;padding:12px;font-size:20px;text-align:center;margin:10px 0;border:1px solid var(--line);border-radius:8px}
+button{background:var(--blue);color:#fff;border:0;border-radius:8px;padding:10px 16px}
+.filters{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.filters label{background:#f3f4f6;border-radius:999px;padding:7px 10px;font-size:13px}
+select,input[type=search]{padding:7px;border:1px solid var(--line);border-radius:7px}
+.tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}.tab{border:1px solid var(--line);background:#fff;color:#374151}.tab.active{background:var(--bg);color:#fff}
+.stats{display:grid;grid-template-columns:repeat(4,minmax(120px,1fr));gap:10px}.stat{padding:12px;border:1px solid var(--line);border-radius:10px}.stat b{font-size:22px;display:block}
+.tablewrap{overflow:auto;max-height:70vh} table{width:100%;border-collapse:collapse;font-size:12.5px}
+th,td{padding:8px;border-bottom:1px solid var(--line);white-space:nowrap;text-align:right}th{position:sticky;top:0;background:#fff;color:var(--muted);z-index:1}
+th:nth-child(1),th:nth-child(2),td:nth-child(1),td:nth-child(2){text-align:left}
+.tag{padding:2px 7px;border-radius:999px;font-size:11px}.y{background:#e7f7ee;color:var(--green)}.n{background:#f3f4f6;color:#777}
+.seed{background:#fff7ed;color:#9a3412}.turn{background:#ffedd5;color:#c2410c}.confirm{background:#fee2e2;color:#991b1b}
+.pos{color:var(--green)}.neg{color:var(--red)}.muted{color:var(--muted);font-size:12px}.count{font-size:13px;color:var(--muted)}
+@media(max-width:700px){.stats{grid-template-columns:1fr 1fr}}
 </style>
 </head>
 <body>
-
-<div id="gateView" class="gate card">
-  <h2 style="margin-top:0">輸入密碼</h2>
-  <p class="disclaimer">這是私人使用的股票技術指標觀察頁面，僅供資料整理與策略觀察，不構成任何投資建議。</p>
-  <input id="pwInput" type="password" inputmode="numeric" maxlength="20" placeholder="密碼">
-  <div class="err" id="pwErr"></div>
-  <button class="btn" onclick="tryUnlock()">進入</button>
+<div id="gate" class="gate card"><h2>輸入密碼</h2><input id="pw" type="password" inputmode="numeric"><div id="err" class="muted"></div><button onclick="unlock()">進入</button></div>
+<div id="app" style="display:none">
+<header><div class="wrap"><h2 style="margin:0">Yoyo 多策略選股觀察</h2><div id="sub" class="muted"></div></div></header>
+<div class="wrap">
+<div class="card">
+<div class="tabs">
+<button class="tab active" data-strategy="all">全部候選</button>
+<button class="tab" data-strategy="old">KD＋MACD</button>
+<button class="tab" data-strategy="seed">🟡 底部萌芽</button>
+<button class="tab" data-strategy="turn">🟠 底部轉強</button>
+<button class="tab" data-strategy="confirm">🔴 底部確認</button>
+</div>
+<div class="filters">
+<label>日期 <select id="date"></select></label>
+<label>市場 <select id="market"><option value="all">全部</option><option>上市</option><option>上櫃</option></select></label>
+<label>搜尋 <input id="q" type="search" placeholder="代號/名稱"></label>
+<label><input type="checkbox" id="vol"> 量能符合</label>
+<label><input type="checkbox" id="kd3"> KD3強勢</label>
+<label><input type="checkbox" id="macd"> MACD130&gt;0</label>
+<label><input type="checkbox" id="rs5"> RS5&gt;0</label>
+<label><input type="checkbox" id="rs20"> RS20&gt;0</label>
+<label>20日均量 ≥ <select id="minvol"><option value="0">不限</option><option value="100">100張</option><option value="500">500張</option><option value="1000">1000張</option><option value="3000">3000張</option></select></label>
+<label>底部分數 ≥ <select id="score"><option value="0">不限</option><option value="50">50</option><option value="60">60</option><option value="70">70</option><option value="80">80</option></select></label>
+</div>
 </div>
 
-<div id="mainView" style="display:none">
-  <header>
-    <div class="wrap">
-      <h1>KD + MACD 個人選股觀察</h1>
-      <p id="subtitle"></p>
-    </div>
-  </header>
-  <div class="wrap">
-    <div class="card">
-      <div class="filters">
-        <label>日期
-          <select id="dateSelect"></select>
-        </label>
-        <label>市場
-          <select id="marketSelect">
-            <option value="all">全部</option>
-            <option value="上市">上市</option>
-            <option value="上櫃">上櫃</option>
-          </select>
-        </label>
-        <label><input type="checkbox" id="onlyVol"> 只看量能符合</label>
-        <label><input type="checkbox" id="onlyKd3"> 只看 KD3 強勢</label>
-        <label><input type="checkbox" id="onlyMacd"> 只看 MACD130 &gt; 0</label>
-      </div>
-    </div>
-    <div class="card">
-      <div class="count" id="countLine"></div>
-      <div class="tablewrap">
-        <table id="reportTable">
-          <thead>
-            <tr>
-              <th>市場</th><th>代號 名稱</th><th>KD交叉日</th><th>收盤價</th>
-              <th>連續</th><th>量能</th><th>20日均量(張)</th><th>KD3強勢</th><th>MACD130&gt;0</th>
-              <th>RS 5日</th><th>RS 20日</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
-      </div>
-    </div>
-    <div class="card disclaimer">
-      <strong>說明</strong><br>
-      KD：近期 KD 黃金交叉標的（9,3,3 參數，交叉後 5 個交易日內都會列出）。<br>
-      KD3 強勢：黃金交叉後，K 與 D 的差距持續擴大。<br>
-      MACD130 &gt; 0：MACD 參數為 9 / 12 / 130，使用 EMA12−EMA130；數值大於 0 才視為符合。<br>
-      量能：5 日均量 &gt; 10 日均量。20日均量單位為「張」。<br>
-      RS 相對強度：個股同期報酬率減去大盤加權指數同期報酬率，正值代表同期跑贏大盤，僅供排序比較，不代表未來漲跌。<br><br>
-      <strong>本頁內容僅供資料整理與策略觀察，不構成任何投資建議，投資人應自行判斷風險並承擔投資結果。</strong>
-    </div>
-  </div>
+<div class="card stats">
+<div class="stat"><span class="muted">目前顯示</span><b id="nshow">0</b></div>
+<div class="stat"><span class="muted">底部萌芽</span><b id="nseed">0</b></div>
+<div class="stat"><span class="muted">底部轉強</span><b id="nturn">0</b></div>
+<div class="stat"><span class="muted">底部確認</span><b id="nconfirm">0</b></div>
 </div>
 
+<div class="card" id="btCard" style="display:none"><b>底部策略回測</b><div id="bt" class="muted" style="margin-top:8px"></div></div>
+
+<div class="card"><div id="count" class="count"></div><div class="tablewrap"><table><thead><tr>
+<th>市場</th><th>代號 名稱</th><th>策略</th><th>底部分數</th><th>收盤</th><th>K/D</th><th>KD交叉</th><th>量能</th><th>20日均量</th><th>MACD130</th><th>OSC</th><th>MA5/10/20</th><th>60日回檔</th><th>RS5</th><th>RS20</th>
+</tr></thead><tbody id="body"></tbody></table></div></div>
+<div class="card muted">
+<strong>底部萌芽：</strong>近60日曾明顯下跌、近低檔築底、MA5/10/20收斂，DIF/MACD仍偏負但動能開始改善。<br>
+<strong>底部轉強：</strong>萌芽基礎上，KD在低檔最近3日內黃金交叉，股價開始站回MA5附近。<br>
+<strong>底部確認：</strong>轉強後再接近/站回MA10、MA20且5日均量不弱於10日均量。<br>
+這些是策略觀察條件，不代表未來一定上漲；建議搭配回測與風險控管。
+</div>
+</div></div>
 <script>
-// 密碼用 SHA-256 雜湊比對，原始密碼不會出現在原始碼裡。
-// 要換密碼：把新密碼的 SHA-256 雜湊值貼到下面 PW_HASH，可以請 Claude 幫你算。
-const PW_HASH = "ea01aa3c1ba251e379ac169014631901f032db13a1d838b431786a6c33c9c8c1"; // 密碼：10311203
-
-async function sha256(text) {
-  const enc = new TextEncoder().encode(text);
-  const buf = await crypto.subtle.digest("SHA-256", enc);
-  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
+const PW_HASH="ea01aa3c1ba251e379ac169014631901f032db13a1d838b431786a6c33c9c8c1";
+async function hash(s){let b=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(s));return [...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,"0")).join("")}
+async function unlock(){if(await hash(pw.value.trim())===PW_HASH){sessionStorage.setItem("u","1");gate.style.display="none";app.style.display="block";init()}else err.textContent="密碼錯誤"}
+pw.addEventListener("keydown",e=>{if(e.key==="Enter")unlock()}); if(sessionStorage.getItem("u")==="1"){gate.style.display="none";app.style.display="block";init()}
+let rows=[],strategy="all";
+const ids=["market","q","vol","kd3","macd","rs5","rs20","minvol","score"];
+async function init(){
+ let dates=[];try{dates=await (await fetch("data/dates.json",{cache:"no-store"})).json()}catch(e){}
+ date.innerHTML="";[...dates].reverse().forEach(d=>date.add(new Option(`${d.slice(0,4)}-${d.slice(4,6)}-${d.slice(6,8)}`,d)));
+ date.onchange=()=>load(date.value); ids.forEach(id=>document.getElementById(id).addEventListener("input",render));
+ document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>{document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active"));b.classList.add("active");strategy=b.dataset.strategy;render()});
+ try{let b=await (await fetch("data/backtest.json",{cache:"no-store"})).json();showBacktest(b)}catch(e){}
+ if(dates.length)load(dates[dates.length-1]);
 }
-
-async function tryUnlock() {
-  const val = document.getElementById("pwInput").value.trim();
-  const hash = await sha256(val);
-  if (hash === PW_HASH) {
-    sessionStorage.setItem("unlocked", "1");
-    document.getElementById("gateView").style.display = "none";
-    document.getElementById("mainView").style.display = "block";
-    initApp();
-  } else {
-    document.getElementById("pwErr").textContent = "密碼錯誤";
-  }
+async function load(d){rows=await (await fetch(`data/${d}.json`,{cache:"no-store"})).json();sub.textContent=`資料日期：${d.slice(0,4)}-${d.slice(4,6)}-${d.slice(6,8)}`;render()}
+function okStrategy(r){if(strategy==="old")return r.old_candidate;if(strategy==="seed")return r.bottom_seed;if(strategy==="turn")return r.bottom_turn;if(strategy==="confirm")return r.bottom_confirm;return true}
+function render(){
+ let m=market.value,qq=q.value.trim().toLowerCase(),mv=+minvol.value,sc=+score.value;
+ let x=rows.filter(r=>okStrategy(r)&&(m==="all"||r.market===m)&&(!qq||(`${r.code}${r.name}`).toLowerCase().includes(qq))&&(!vol.checked||r.vol_ok)&&(!kd3.checked||r.kd3_strong)&&(!macd.checked||r.macd130_positive)&&(!rs5.checked||(r.rs5??-999)>0)&&(!rs20.checked||(r.rs20??-999)>0)&&((r.vol20??0)>=mv)&&((r.bottom_score??0)>=sc));
+ x.sort((a,b)=>(b.bottom_score??0)-(a.bottom_score??0));
+ nshow.textContent=x.length;nseed.textContent=rows.filter(r=>r.bottom_seed).length;nturn.textContent=rows.filter(r=>r.bottom_turn).length;nconfirm.textContent=rows.filter(r=>r.bottom_confirm).length;
+ count.textContent=`共 ${x.length} / ${rows.length} 檔候選`;
+ const pct=v=>v==null?"-":`<span class="${v>=0?"pos":"neg"}">${v>=0?"+":""}${Number(v).toFixed(2)}%</span>`;
+ const tag=v=>`<span class="tag ${v?"y":"n"}">${v?"Y":"N"}</span>`;
+ const strat=r=>r.bottom_confirm?'<span class="tag confirm">確認</span>':r.bottom_turn?'<span class="tag turn">轉強</span>':r.bottom_seed?'<span class="tag seed">萌芽</span>':r.old_candidate?'<span class="tag y">KD+MACD</span>':'-';
+ body.innerHTML=x.map(r=>`<tr><td>${r.market}</td><td>${r.code} ${r.name}</td><td>${strat(r)}</td><td>${r.bottom_score??0}</td><td>${r.close}</td><td>${r.k??"-"}/${r.d??"-"}</td><td>${r.kd_date??"-"}</td><td>${tag(r.vol_ok)}</td><td>${r.vol20??"-"}</td><td>${r.macd130??"-"}</td><td>${r.osc130??"-"}</td><td>${r.ma5??"-"}/${r.ma10??"-"}/${r.ma20??"-"}</td><td>${r.drop60??"-"}%</td><td>${pct(r.rs5)}</td><td>${pct(r.rs20)}</td></tr>`).join("");
 }
-document.getElementById("pwInput").addEventListener("keydown", e => { if (e.key === "Enter") tryUnlock(); });
-
-if (sessionStorage.getItem("unlocked") === "1") {
-  document.getElementById("gateView").style.display = "none";
-  document.getElementById("mainView").style.display = "block";
-  initApp();
-}
-
-let allDates = [];
-let currentRows = [];
-
-async function initApp() {
-  try {
-    const res = await fetch("data/dates.json", { cache: "no-store" });
-    allDates = await res.json();
-  } catch (e) {
-    allDates = [];
-  }
-  const sel = document.getElementById("dateSelect");
-  sel.innerHTML = "";
-  allDates.slice().reverse().forEach(d => {
-    const opt = document.createElement("option");
-    opt.value = d;
-    opt.textContent = `${d.slice(0,4)}-${d.slice(4,6)}-${d.slice(6,8)}`;
-    sel.appendChild(opt);
-  });
-  sel.addEventListener("change", () => loadDate(sel.value));
-  document.getElementById("marketSelect").addEventListener("change", render);
-  document.getElementById("onlyVol").addEventListener("change", render);
-  document.getElementById("onlyKd3").addEventListener("change", render);
-  document.getElementById("onlyMacd").addEventListener("change", render);
-  if (allDates.length) {
-    await loadDate(allDates[allDates.length - 1]);
-  } else {
-    document.getElementById("subtitle").textContent = "目前還沒有資料，等排程第一次跑完後就會出現。";
-  }
-}
-
-async function loadDate(d) {
-  document.getElementById("dateSelect").value = d;
-  try {
-    const res = await fetch(`data/${d}.json`, { cache: "no-store" });
-    currentRows = await res.json();
-  } catch (e) {
-    currentRows = [];
-  }
-  document.getElementById("subtitle").textContent =
-    `資料日期：${d.slice(0,4)}-${d.slice(4,6)}-${d.slice(6,8)}`;
-  render();
-}
-
-function macd130Ok(r) {
-  if (typeof r.macd130_positive === "boolean") return r.macd130_positive;
-  if (r.macd130 !== null && r.macd130 !== undefined && r.macd130 !== "") {
-    const v = Number(r.macd130);
-    return Number.isFinite(v) && v > 0;
-  }
-  return !!r.macd_positive; // 舊資料相容
-}
-
-function render() {
-  const market = document.getElementById("marketSelect").value;
-  const onlyVol = document.getElementById("onlyVol").checked;
-  const onlyKd3 = document.getElementById("onlyKd3").checked;
-  const onlyMacd = document.getElementById("onlyMacd").checked;
-  let rows = currentRows.filter(r => {
-    if (market !== "all" && r.market !== market) return false;
-    if (onlyVol && !r.vol_ok) return false;
-    if (onlyKd3 && !r.kd3_strong) return false;
-    if (onlyMacd && !macd130Ok(r)) return false;
-    return true;
-  });
-  document.getElementById("countLine").textContent = `共 ${rows.length} / ${currentRows.length} 檔`;
-  const tbody = document.querySelector("#reportTable tbody");
-  tbody.innerHTML = "";
-  const fmtPct = v => v === null || v === undefined ? "-" :
-    `<span class="${v >= 0 ? 'pos' : 'neg'}">${v >= 0 ? '+' : ''}${v.toFixed(2)}%</span>`;
-  const tag = ok => `<span class="tag ${ok ? 'y' : 'n'}">${ok ? 'Y' : 'N'}</span>`;
-  rows.forEach(r => {
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td>${r.market}</td>
-      <td>${r.code} ${r.name}</td>
-      <td>${r.kd_date}</td>
-      <td>${r.close}</td>
-      <td>${r.days_since_cross}</td>
-      <td>${tag(r.vol_ok)}</td>
-      <td>${r.vol20 ?? '-'}</td>
-      <td>${tag(r.kd3_strong)}</td>
-      <td>${tag(macd130Ok(r))}</td>
-      <td>${fmtPct(r.rs5)}</td>
-      <td>${fmtPct(r.rs20)}</td>`;
-    tbody.appendChild(tr);
-  });
-}
-</script>
-</body>
-</html>
+function showBacktest(b){if(!b?.summary)return;btCard.style.display="block";let s=b.summary;let line=(n,o)=>`${n}：訊號 ${o.signals} 次｜5日 平均 ${o.avg5??"-"}% / 勝率 ${o.win5??"-"}%｜10日 ${o.avg10??"-"}% / ${o.win10??"-"}%｜20日 ${o.avg20??"-"}% / ${o.win20??"-"}%`;bt.innerHTML=[line("萌芽",s.seed),line("轉強",s.turn),line("確認",s.confirm)].join("<br>")}
+</script></body></html>
