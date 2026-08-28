@@ -1,0 +1,108 @@
+name: MACD130 剩餘差異深挖 V15
+on:
+  workflow_dispatch:
+  push:
+    paths: ['.github/workflows/macd130_residual_v15.yml']
+permissions:
+  contents: write
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - run: pip install pandas yfinance requests
+      - name: 掃描剩餘差異的價格口徑與 MACD 定義
+        run: |
+          python - <<'PY'
+          import json, requests, pandas as pd, yfinance as yf
+          from pathlib import Path
+          URL='https://yachia2002.github.io/kd-macd-public-report/'
+          html=requests.get(URL,timeout=30).text
+          a=html.find('const HISTORY = '); p=html.find('{',a); dep=0; ins=False; esc=False
+          for j in range(p,len(html)):
+              c=html[j]
+              if ins:
+                  if esc: esc=False
+                  elif c=='\\': esc=True
+                  elif c=='"': ins=False
+                  continue
+              if c=='"': ins=True
+              elif c=='{': dep+=1
+              elif c=='}':
+                  dep-=1
+                  if dep==0: q=j+1; break
+          H=json.loads(html[p:q])
+          dates=['2026-08-25','2026-08-26','2026-08-27']
+          refs=[]
+          for d in dates:
+              for r in H[d]:
+                  code=str(r.get('code','')); market=str(r.get('market',''))
+                  refs.append((d,code,code+('.TW' if '上市' in market else '.TWO'),bool(r.get('macd130'))))
+          tickers=sorted(set(x[2] for x in refs))
+          cache={}
+          for t in tickers:
+              h=yf.Ticker(t).history(period='max',auto_adjust=False,actions=True)
+              if h.empty: continue
+              if h.index.tz is not None: h.index=h.index.tz_localize(None)
+              raw=h.Close.astype(float)
+              adj=h['Adj Close'].astype(float) if 'Adj Close' in h else raw
+              sp=h.get('Stock Splits',pd.Series(0,index=h.index))
+              pre=raw.copy()
+              for dt,ratio in sp[sp!=0].items():
+                  if float(ratio)>0: pre.loc[pre.index<dt]*=float(ratio)
+              cache[t]={'RAW':raw,'ADJ':adj,'PRE_MUL':pre}
+
+          # 掃描價格口徑、fast、signal，以及 SIGNAL/DIF/HIST/DIF_AND_SIGNAL 四種判定
+          rows=[]
+          for mode in ['RAW','ADJ','PRE_MUL']:
+            for f in range(2,31):
+              for s in range(2,16):
+                bads={k:[] for k in ['SIGNAL','DIF','HIST','DIF_AND_SIGNAL']}
+                tested=0
+                for d,code,t,exp in refs:
+                  if t not in cache: continue
+                  x=cache[t][mode]; x=x[x.index<=pd.Timestamp(d)]
+                  if x.empty: continue
+                  slow=x.ewm(span=130,adjust=False).mean()
+                  dif=x.ewm(span=f,adjust=False).mean()-slow
+                  sig=dif.ewm(span=s,adjust=False).mean()
+                  histv=dif-sig
+                  vals={
+                    'SIGNAL':sig.iloc[-1]>0,
+                    'DIF':dif.iloc[-1]>0,
+                    'HIST':histv.iloc[-1]>0,
+                    'DIF_AND_SIGNAL':dif.iloc[-1]>0 and sig.iloc[-1]>0
+                  }
+                  tested+=1
+                  for k,v in vals.items():
+                    if bool(v)!=exp: bads[k].append(f'{d}:{code}')
+                for k,b in bads.items():
+                  rows.append((len(b),mode,f,s,k,tested,b))
+          rows.sort(key=lambda z:(z[0],z[1],z[2],z[3],z[4]))
+          out=['=== MACD130 RESIDUAL V15 ===',f'TOTAL_REF={len(refs)}','TOP 40']
+          for bad,mode,f,s,k,tested,b in rows[:40]:
+              out.append(f'BAD={bad} mode={mode} f={f} signal={s} rule={k} tested={tested} mism={",".join(b[:30])}')
+          # 特別列出最佳方案每個 mismatch 的數值與公司行動
+          best=rows[0]; _,mode,f,s,k,_,b=best
+          out += ['',f'BEST={mode} f={f} signal={s} rule={k}','DETAIL']
+          badset=set(b)
+          for d,code,t,exp in refs:
+            if f'{d}:{code}' not in badset or t not in cache: continue
+            x=cache[t][mode]; x=x[x.index<=pd.Timestamp(d)]
+            dif=x.ewm(span=f,adjust=False).mean()-x.ewm(span=130,adjust=False).mean()
+            sig=dif.ewm(span=s,adjust=False).mean(); hv=dif-sig
+            acts=yf.Ticker(t).history(period='2y',auto_adjust=False,actions=True)
+            acts=acts[(acts.get('Stock Splits',0)!=0)|(acts.get('Dividends',0)!=0)]
+            out.append(f'{d} {code} exp={exp} DIF={dif.iloc[-1]:.8f} SIG={sig.iloc[-1]:.8f} HIST={hv.iloc[-1]:.8f} actions={[(str(i.date()),float(r.get("Dividends",0)),float(r.get("Stock Splits",0))) for i,r in acts.iterrows()]}')
+          Path('docs/data/macd130_residual_v15.txt').write_text('\n'.join(out),encoding='utf-8')
+          print('\n'.join(out))
+          PY
+      - name: 提交結果
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/data/macd130_residual_v15.txt
+          git diff --cached --quiet || (git commit -m '深挖 MACD130 剩餘差異 V15' && git push)
