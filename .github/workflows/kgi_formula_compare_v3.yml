@@ -1,0 +1,358 @@
+name: 凱基 0826 公式逐檔比對 V3
+
+on:
+  push:
+    paths:
+      - '.github/workflows/kgi_formula_compare_v3.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 安裝套件
+        run: pip install -r requirements.txt
+
+      - name: 逐檔比對凱基與目前公式
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import sys
+          import urllib.request
+          from pathlib import Path
+
+          import numpy as np
+          import pandas as pd
+
+          sys.path.insert(0, os.path.join(os.getcwd(), "scripts"))
+          import fetch_and_compute as fc
+
+          DATE = "2026-08-26"
+          TARGET = pd.Timestamp(DATE)
+          SOURCE = "https://raw.githubusercontent.com/yachia2002/kd-macd-public-report/44f1cfbfb7eaa8a0d07200dd65aef26d837d4c80/index.html"
+
+          # ---------- 1) 讀凱基 8/26 HISTORY ----------
+          req = urllib.request.Request(SOURCE, headers={"User-Agent": "Mozilla/5.0"})
+          with urllib.request.urlopen(req, timeout=60) as r:
+              html = r.read().decode("utf-8", errors="replace")
+
+          marker = "const HISTORY = "
+          p = html.find(marker)
+          if p < 0:
+              raise SystemExit("找不到 const HISTORY")
+          p = html.find("{", p)
+
+          depth = 0
+          in_string = False
+          escaped = False
+          q = None
+
+          for i in range(p, len(html)):
+              ch = html[i]
+              if in_string:
+                  if escaped:
+                      escaped = False
+                  elif ch == "\\":
+                      escaped = True
+                  elif ch == '"':
+                      in_string = False
+                  continue
+
+              if ch == '"':
+                  in_string = True
+              elif ch == "{":
+                  depth += 1
+              elif ch == "}":
+                  depth -= 1
+                  if depth == 0:
+                      q = i + 1
+                      break
+
+          if q is None:
+              raise SystemExit("HISTORY JSON 沒有結束")
+
+          history = json.loads(html[p:q])
+          kgi_rows = history[DATE]
+          kgi_by_code = {str(r["code"]): r for r in kgi_rows}
+
+          # ---------- 2) 讀 Yoyo 現有 raw 歷史 ----------
+          df, _ = fc.load_history()
+          if df.empty:
+              raise SystemExit("Yoyo raw 歷史資料是空的")
+
+          df = df[df["date"] <= TARGET].copy()
+          df["code"] = df["code"].astype(str)
+
+          def boolv(x):
+              return bool(x) if x is not None else False
+
+          def latest_cross_date(g):
+              xs = g.index[g["kd_cross"].fillna(False)]
+              if len(xs) == 0:
+                  return "-"
+              return g.loc[int(xs.max()), "date"].strftime("%m/%d")
+
+          # ---------- 3) 比對候選公式 ----------
+          rows = []
+          missing = []
+
+          for code, kr in kgi_by_code.items():
+              raw = df[df["code"] == code].sort_values("date").copy()
+              if raw.empty or raw["date"].iloc[-1] != TARGET:
+                  missing.append(code)
+                  continue
+
+              g = fc.enrich_group(raw.reset_index(drop=True))
+              r = g.iloc[-1]
+              prev = g.iloc[-2] if len(g) >= 2 else None
+              prev2 = g.iloc[-3] if len(g) >= 3 else None
+
+              k = float(r["k"]) if pd.notna(r["k"]) else np.nan
+              d = float(r["d"]) if pd.notna(r["d"]) else np.nan
+              gap = float(r["kd_gap"]) if pd.notna(r["kd_gap"]) else np.nan
+              gap1 = float(prev["kd_gap"]) if prev is not None and pd.notna(prev["kd_gap"]) else np.nan
+              gap2 = float(prev2["kd_gap"]) if prev2 is not None and pd.notna(prev2["kd_gap"]) else np.nan
+
+              # KD 候選
+              kd_A_current = bool(
+                  prev is not None
+                  and pd.notna(gap) and pd.notna(gap1)
+                  and k > d and gap > gap1
+              )
+              kd_B_prev_above = bool(
+                  kd_A_current
+                  and pd.notna(prev["k"]) and pd.notna(prev["d"])
+                  and prev["k"] > prev["d"]
+              )
+              kd_C_3day_gap = bool(
+                  prev2 is not None
+                  and pd.notna(gap) and pd.notna(gap1) and pd.notna(gap2)
+                  and k > d and gap > gap1 > gap2
+              )
+              kd_D_kd_both_rise = bool(
+                  kd_A_current
+                  and pd.notna(prev["k"]) and pd.notna(prev["d"])
+                  and k > prev["k"] and d > prev["d"]
+              )
+
+              # 量能
+              vol_current = bool(
+                  pd.notna(r["vol5"]) and pd.notna(r["vol10"])
+                  and r["vol5"] > r["vol10"]
+              )
+
+              # MACD：目前正式程式（weighted close）
+              macd_signal_weighted = bool(pd.notna(r["macd130"]) and r["macd130"] > 0)
+              macd_dif_weighted = bool(pd.notna(r["dif130"]) and r["dif130"] > 0)
+              macd_osc_weighted = bool(pd.notna(r["osc130"]) and r["osc130"] > 0)
+
+              # MACD：純 close 備選，參數沿用正式程式常數
+              close = pd.to_numeric(g["close"], errors="coerce")
+              ema_fast_close = close.ewm(span=fc.MACD_FAST, adjust=False).mean()
+              ema_slow_close = close.ewm(span=fc.MACD_SLOW, adjust=False).mean()
+              dif_close = ema_fast_close - ema_slow_close
+              sig_close = dif_close.ewm(span=fc.MACD_SIGNAL, adjust=False).mean()
+              macd_signal_close = bool(sig_close.iloc[-1] > 0)
+              macd_dif_close = bool(dif_close.iloc[-1] > 0)
+
+              rows.append({
+                  "code": code,
+                  "name": kr.get("name"),
+                  "market": kr.get("market"),
+                  "kgi_kd": kr.get("kd"),
+                  "yoyo_kd": latest_cross_date(g),
+
+                  "kgi_volume": boolv(kr.get("volume")),
+                  "yoyo_volume": vol_current,
+
+                  "kgi_strong": boolv(kr.get("strong")),
+                  "kd_A_current": kd_A_current,
+                  "kd_B_prev_above": kd_B_prev_above,
+                  "kd_C_3day_gap": kd_C_3day_gap,
+                  "kd_D_kd_both_rise": kd_D_kd_both_rise,
+
+                  "kgi_macd130": boolv(kr.get("macd130")),
+                  "macd_signal_weighted": macd_signal_weighted,
+                  "macd_dif_weighted": macd_dif_weighted,
+                  "macd_osc_weighted": macd_osc_weighted,
+                  "macd_signal_close": macd_signal_close,
+                  "macd_dif_close": macd_dif_close,
+
+                  "K": None if pd.isna(k) else round(k, 8),
+                  "D": None if pd.isna(d) else round(d, 8),
+                  "gap": None if pd.isna(gap) else round(gap, 8),
+                  "gap_prev": None if pd.isna(gap1) else round(gap1, 8),
+                  "gap_prev2": None if pd.isna(gap2) else round(gap2, 8),
+                  "signal_weighted_num": None if pd.isna(r["macd130"]) else round(float(r["macd130"]), 8),
+                  "dif_weighted_num": None if pd.isna(r["dif130"]) else round(float(r["dif130"]), 8),
+                  "osc_weighted_num": None if pd.isna(r["osc130"]) else round(float(r["osc130"]), 8),
+                  "vol5": None if pd.isna(r["vol5"]) else round(float(r["vol5"]), 4),
+                  "vol10": None if pd.isna(r["vol10"]) else round(float(r["vol10"]), 4),
+                  "vol20": None if pd.isna(r["vol20"]) else round(float(r["vol20"]), 4),
+              })
+
+          cmp = pd.DataFrame(rows)
+
+          def mismatch_count(a, b):
+              return int((cmp[a] != cmp[b]).sum())
+
+          metrics = {
+              "kgi_total": len(kgi_rows),
+              "computed": len(cmp),
+              "missing": len(missing),
+
+              "volume_mismatch": mismatch_count("kgi_volume", "yoyo_volume"),
+
+              "kd_A_current_mismatch": mismatch_count("kgi_strong", "kd_A_current"),
+              "kd_B_prev_above_mismatch": mismatch_count("kgi_strong", "kd_B_prev_above"),
+              "kd_C_3day_gap_mismatch": mismatch_count("kgi_strong", "kd_C_3day_gap"),
+              "kd_D_kd_both_rise_mismatch": mismatch_count("kgi_strong", "kd_D_kd_both_rise"),
+
+              "macd_signal_weighted_mismatch": mismatch_count("kgi_macd130", "macd_signal_weighted"),
+              "macd_dif_weighted_mismatch": mismatch_count("kgi_macd130", "macd_dif_weighted"),
+              "macd_osc_weighted_mismatch": mismatch_count("kgi_macd130", "macd_osc_weighted"),
+              "macd_signal_close_mismatch": mismatch_count("kgi_macd130", "macd_signal_close"),
+              "macd_dif_close_mismatch": mismatch_count("kgi_macd130", "macd_dif_close"),
+          }
+
+          kd_cols = [
+              "kd_A_current", "kd_B_prev_above",
+              "kd_C_3day_gap", "kd_D_kd_both_rise"
+          ]
+          macd_cols = [
+              "macd_signal_weighted", "macd_dif_weighted",
+              "macd_osc_weighted", "macd_signal_close", "macd_dif_close"
+          ]
+
+          # ---------- 4) 八檔交集 ----------
+          kgi8 = sorted(
+              code for code, kr in kgi_by_code.items()
+              if boolv(kr.get("volume"))
+              and boolv(kr.get("strong"))
+              and boolv(kr.get("macd130"))
+          )
+
+          yoyo8_current = sorted(
+              cmp.loc[
+                  cmp["yoyo_volume"]
+                  & cmp["kd_A_current"]
+                  & cmp["macd_signal_weighted"],
+                  "code"
+              ].tolist()
+          )
+
+          def fmt_codes(codes):
+              return [
+                  f'{c} {kgi_by_code.get(c, {}).get("name", "")}'.strip()
+                  for c in codes
+              ]
+
+          result = {
+              "source": SOURCE,
+              "date": DATE,
+              "metrics": metrics,
+              "missing_codes": missing,
+              "kgi8": fmt_codes(kgi8),
+              "yoyo8_current_formula": fmt_codes(yoyo8_current),
+              "kgi8_only": fmt_codes(sorted(set(kgi8) - set(yoyo8_current))),
+              "yoyo8_only": fmt_codes(sorted(set(yoyo8_current) - set(kgi8))),
+              "rows": rows,
+          }
+
+          out_json = Path("docs/data/kgi_formula_compare_20260826.json")
+          out_json.parent.mkdir(parents=True, exist_ok=True)
+          out_json.write_text(
+              json.dumps(result, ensure_ascii=False, indent=2),
+              encoding="utf-8"
+          )
+
+          lines = [
+              "=== KGI vs YOYO 2026-08-26 FORMULA COMPARE ===",
+              f"SOURCE={SOURCE}",
+              "",
+              "METRICS",
+          ]
+          for k, v in metrics.items():
+              lines.append(f"{k}={v}")
+
+          lines += [
+              "",
+              f"KGI8 ({len(kgi8)}): " + ", ".join(fmt_codes(kgi8)),
+              f"YOYO8_CURRENT ({len(yoyo8_current)}): " + ", ".join(fmt_codes(yoyo8_current)),
+              "KGI8_ONLY: " + ", ".join(fmt_codes(sorted(set(kgi8) - set(yoyo8_current))),
+              "YOYO8_ONLY: " + ", ".join(fmt_codes(sorted(set(yoyo8_current) - set(kgi8))),
+          ]
+
+          # 每種 KD 公式的錯誤股票
+          for col in kd_cols:
+              bad = cmp[cmp["kgi_strong"] != cmp[col]]
+              lines += ["", f"### {col} MISMATCH ({len(bad)})"]
+              for _, x in bad.iterrows():
+                  lines.append(
+                      f'{x["code"]} {x["name"]} | '
+                      f'KGI={x["kgi_strong"]} YOYO={x[col]} '
+                      f'kgiKD={x["kgi_kd"]} yoyoKD={x["yoyo_kd"]} '
+                      f'K={x["K"]} D={x["D"]} gap={x["gap"]} '
+                      f'prev={x["gap_prev"]} prev2={x["gap_prev2"]}'
+                  )
+
+          # 每種 MACD 正值定義的錯誤股票
+          for col in macd_cols:
+              bad = cmp[cmp["kgi_macd130"] != cmp[col]]
+              lines += ["", f"### {col} MISMATCH ({len(bad)})"]
+              for _, x in bad.iterrows():
+                  lines.append(
+                      f'{x["code"]} {x["name"]} | '
+                      f'KGI={x["kgi_macd130"]} YOYO={x[col]} '
+                      f'signalW={x["signal_weighted_num"]} '
+                      f'difW={x["dif_weighted_num"]} '
+                      f'oscW={x["osc_weighted_num"]}'
+                  )
+
+          # 量能錯誤
+          bad = cmp[cmp["kgi_volume"] != cmp["yoyo_volume"]]
+          lines += ["", f"### VOLUME MISMATCH ({len(bad)})"]
+          for _, x in bad.iterrows():
+              lines.append(
+                  f'{x["code"]} {x["name"]} | '
+                  f'KGI={x["kgi_volume"]} YOYO={x["yoyo_volume"]} '
+                  f'vol5={x["vol5"]} vol10={x["vol10"]} vol20={x["vol20"]}'
+              )
+
+          # 3324 精準列
+          lines += ["", "### 3324"]
+          z = cmp[cmp["code"] == "3324"]
+          if len(z):
+              lines.append(z.to_json(orient="records", force_ascii=False))
+          else:
+              lines.append("NOT_FOUND")
+
+          out_txt = Path("docs/data/kgi_formula_compare_20260826.txt")
+          out_txt.write_text("\n".join(lines), encoding="utf-8")
+
+          print("\n".join(lines[:40]))
+          print("WROTE", out_json, out_txt)
+          PY
+
+      - name: 提交比對結果
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/data/kgi_formula_compare_20260826.json docs/data/kgi_formula_compare_20260826.txt
+          if git diff --cached --quiet; then
+            echo 'no changes'
+          else
+            git commit -m '逐檔比對凱基 0826 KD3 與 MACD 公式'
+            git push
+          fi
