@@ -1,0 +1,48 @@
+=== MACD130 SEED/WINDOW V17 ===
+FOCUS_REFS=21 ALL_REFS=619
+
+FOCUS TOP 30
+BAD=0 basis=ADJ_CLOSE seed=SMA window=130 f=2 signal=2 tested=0 mism=
+BAD=0 basis=ADJ_CLOSE seed=SMA window=130 f=2 signal=3 tested=0 mism=
+BAD=0 basis=ADJ_CLOSE seed=SMA window=130 f=2 signal=4 tested=0 mism=
+BAD=0 basis=ADJ_CLOSE seed=SMA window=130 f=2 signal=5 tested=0 mism=
+BAD=0 basis=ADJ_CLOSE seed=SMA window=130 f=2 signal=6 tested=0 mism=
+BAD=0 basis=ADJ_CLOSE seed=SMA window=130 f=2 signal=7 tested=0 mism=
+BAD=0 basis=ADJ_CLOSE seed=SMA window=130 f=2 signal=8 tested=0 mism=
+BAD=0 basis=ADJ_CLOSE seed=SMA window=130 f=2 signal=9 tested=0 mism=
+BAD=0 basis=ADJ_CLOSE seed=SMA window=130 f=2 signal=10 tested=0 mism=
+BAD=0 basis=ADJ_CLOSE seed=SMA window=130 f=2 signal=11 tested=0 mism=
+BAD=0 basis=ADJ_CLOSE seed=SMA window=130 f=2 signal=12 tested=0 mism=
+BAD=0 basis=ADJ_CLOSE seed=SMA window=130 f=2 signal=13 tested=0 mism=
+BAD=0 basis=ADJ_CLOSE seed=SMA window=130 f=2 signal=14 tested=0 mism=
+BAD=0 basis=ADJ_CLOSE seed=SMA window=130 f=2 signal=15 tested=0 mism=
+BAD=0 basis=ADJ_CLOSE seed=SMA window=130 f=3 signal=2 tested=0 mism=
+BAD=0 basis=ADJ_CLOSE seed=SMA window=130 f=3 signal=3 tested=0 mism=
+BAD=0 basis=ADJ_CLOSE seed=SMA window=130 f=3 signal=4 tested=0 mism=
+BAD=0 basis=ADJ_CLOSE seed=SMA window=130 f=3 signal=5 tested=0 mism=
+BAD=0 basis=ADJ_CLOSE seed=SMA window=130 f=3 signal=6 tested=0 mism=
+BAD=0 basis=ADJ_CLOSE seed=SMA window=130 f=3 signal=7 tested=0 mism=
+BAD=0 basis=ADJ_CLOSE seed=SMA window=130 f=3 signal=8 tested=0 mism=
+BAD=0 basis=ADJ_CLOSE seed=SMA window=130 f=3 signal=9 tested=0 mism=
+BAD=0 basis=ADJ_CLOSE seed=SMA window=130 f=3 signal=10 tested=0 mism=
+BAD=0 basis=ADJ_CLOSE seed=SMA window=130 f=3 signal=11 tested=0 mism=
+BAD=0 basis=ADJ_CLOSE seed=SMA window=130 f=3 signal=12 tested=0 mism=
+BAD=0 basis=ADJ_CLOSE seed=SMA window=130 f=3 signal=13 tested=0 mism=
+BAD=0 basis=ADJ_CLOSE seed=SMA window=130 f=3 signal=14 tested=0 mism=
+BAD=0 basis=ADJ_CLOSE seed=SMA window=130 f=3 signal=15 tested=0 mism=
+BAD=0 basis=ADJ_CLOSE seed=SMA window=130 f=4 signal=2 tested=0 mism=
+BAD=0 basis=ADJ_CLOSE seed=SMA window=130 f=4 signal=3 tested=0 mism=
+
+FULL VALIDATION OF FOCUS WINNERS
+BAD=0 basis=ADJ_CLOSE seed=SMA window=130 f=2 signal=2 tested=0 mism=
+BAD=0 basis=ADJ_CLOSE seed=SMA window=130 f=2 signal=3 tested=0 mism=
+BAD=0 basis=ADJ_CLOSE seed=SMA window=130 f=2 signal=4 tested=0 mism=
+BAD=0 basis=ADJ_CLOSE seed=SMA window=130 f=2 signal=5 tested=0 mism=
+BAD=0 basis=ADJ_CLOSE seed=SMA window=130 f=2 signal=6 tested=0 mism=
+BAD=0 basis=ADJ_CLOSE seed=SMA window=130 f=2 signal=7 tested=0 mism=
+BAD=0 basis=ADJ_CLOSE seed=SMA window=130 f=2 signal=8 tested=0 mism=
+BAD=0 basis=ADJ_CLOSE seed=SMA window=130 f=2 signal=9 tested=0 mism=
+BAD=0 basis=ADJ_CLOSE seed=SMA window=130 f=2 signal=10 tested=0 mism=
+BAD=0 basis=ADJ_CLOSE seed=SMA window=130 f=2 signal=11 tested=0 mism=
+BAD=0 basis=ADJ_CLOSE seed=SMA window=130 f=2 signal=12 tested=0 mism=
+BAD=0 basis=ADJ_CLOSE seed=SMA window=130 f=2 signal=13 tested=0 mism=
