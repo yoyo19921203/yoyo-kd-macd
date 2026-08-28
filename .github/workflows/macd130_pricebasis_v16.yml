@@ -1,0 +1,180 @@
+name: MACD130 價格基礎驗證 V16
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/macd130_pricebasis_v16.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - run: pip install pandas yfinance requests
+
+      - name: 驗證 weighted close 與 EMA 定義
+        run: |
+          python - <<'PY'
+          import json, requests
+          from pathlib import Path
+          import pandas as pd
+          import yfinance as yf
+
+          URL='https://yachia2002.github.io/kd-macd-public-report/'
+          html=requests.get(URL,timeout=30).text
+
+          marker='const HISTORY = '
+          a=html.find(marker)
+          p=html.find('{',a)
+          dep=0; ins=False; esc=False
+          for j in range(p,len(html)):
+              c=html[j]
+              if ins:
+                  if esc: esc=False
+                  elif c=='\\': esc=True
+                  elif c=='"': ins=False
+                  continue
+              if c=='"': ins=True
+              elif c=='{': dep+=1
+              elif c=='}':
+                  dep-=1
+                  if dep==0:
+                      q=j+1
+                      break
+          H=json.loads(html[p:q])
+
+          dates=['2026-08-25','2026-08-26','2026-08-27']
+          refs=[]
+          for d in dates:
+              for r in H[d]:
+                  code=str(r.get('code','')).strip()
+                  market=str(r.get('market',''))
+                  if not code:
+                      continue
+                  ticker=code+('.TW' if '上市' in market else '.TWO')
+                  refs.append((d,code,ticker,bool(r.get('macd130'))))
+
+          tickers=sorted(set(t for _,_,t,_ in refs))
+          cache={}
+          missing=[]
+
+          for t in tickers:
+              try:
+                  h=yf.Ticker(t).history(period='max',auto_adjust=False,actions=True)
+              except Exception:
+                  h=pd.DataFrame()
+              if h.empty:
+                  missing.append(t)
+                  continue
+              if h.index.tz is not None:
+                  h.index=h.index.tz_localize(None)
+
+              sp=h.get('Stock Splits',pd.Series(0,index=h.index))
+              cols={}
+              for col in ['Open','High','Low','Close']:
+                  s=h[col].astype(float).copy()
+                  for dt,ratio in sp[sp!=0].items():
+                      if pd.notna(ratio) and float(ratio)>0:
+                          s.loc[s.index<dt] *= float(ratio)
+                  cols[col]=s
+
+              O,Hh,L,C=cols['Open'],cols['High'],cols['Low'],cols['Close']
+              cache[t]={
+                  'CLOSE': C,
+                  'HLC3': (Hh+L+C)/3.0,
+                  'OHLC4': (O+Hh+L+C)/4.0,
+                  'WCL': (C*2.0+Hh+L)/4.0,
+              }
+
+          results=[]
+          for basis in ['WCL','CLOSE','HLC3','OHLC4']:
+              for adjust in [False, True]:
+                  for fast in range(2,31):
+                      for signal in range(2,16):
+                          bad_signal=[]
+                          bad_dif=[]
+                          bad_both=[]
+                          tested=0
+                          for d,code,t,expected in refs:
+                              if t not in cache:
+                                  continue
+                              x=cache[t][basis]
+                              x=x[x.index<=pd.Timestamp(d)]
+                              if x.empty:
+                                  continue
+
+                              ema_f=x.ewm(span=fast,adjust=adjust).mean()
+                              ema_s=x.ewm(span=130,adjust=adjust).mean()
+                              dif=ema_f-ema_s
+                              sig=dif.ewm(span=signal,adjust=adjust).mean()
+
+                              got_signal=bool(sig.iloc[-1]>0)
+                              got_dif=bool(dif.iloc[-1]>0)
+                              got_both=bool((dif.iloc[-1]>0) and (sig.iloc[-1]>0))
+                              tested+=1
+
+                              tag=f'{d}:{code}'
+                              if got_signal!=expected: bad_signal.append(tag)
+                              if got_dif!=expected: bad_dif.append(tag)
+                              if got_both!=expected: bad_both.append(tag)
+
+                          results.append((len(bad_signal),basis,adjust,fast,signal,'SIGNAL',tested,bad_signal))
+                          results.append((len(bad_dif),basis,adjust,fast,signal,'DIF',tested,bad_dif))
+                          results.append((len(bad_both),basis,adjust,fast,signal,'DIF_AND_SIGNAL',tested,bad_both))
+
+          results.sort(key=lambda z:(z[0], z[1] != 'WCL', z[2], z[3], z[4], z[5]))
+
+          out=[
+              '=== MACD130 PRICE BASIS V16 ===',
+              f'REFS={len(refs)} tickers={len(tickers)} cache={len(cache)} missing={len(missing)}',
+              'PRICE: PRE_MUL split-adjusted OHLC',
+              'WCL=(2*C+H+L)/4, matching current production input formula',
+              '',
+              'TOP 50'
+          ]
+
+          for bad,basis,adjust,fast,signal,rule,tested,mism in results[:50]:
+              out.append(
+                  f'BAD={bad} basis={basis} adjust={adjust} fast={fast} '
+                  f'signal={signal} slow=130 rule={rule} tested={tested} '
+                  f'mism={",".join(mism[:40])}'
+              )
+
+          out += ['', 'CURRENT_PRODUCTION_WCL_12_9_130']
+          for rule in ['SIGNAL','DIF','DIF_AND_SIGNAL']:
+              candidates=[r for r in results
+                          if r[1]=='WCL' and r[2] is False and r[3]==12 and r[4]==9 and r[5]==rule]
+              if candidates:
+                  r=candidates[0]
+                  out.append(f'{rule}: BAD={r[0]} mism={",".join(r[7][:60])}')
+
+          best=results[0]
+          bad,basis,adjust,fast,signal,rule,tested,mism=best
+          out += [
+              '',
+              f'BEST basis={basis} adjust={adjust} fast={fast} signal={signal} slow=130 rule={rule} BAD={bad}',
+              'BEST_MISMATCHES',
+              *mism
+          ]
+
+          Path('docs/data/macd130_pricebasis_v16.txt').write_text('\n'.join(out),encoding='utf-8')
+          print('\n'.join(out))
+          PY
+
+      - name: 提交結果
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/data/macd130_pricebasis_v16.txt
+          git diff --cached --quiet || (git commit -m '驗證 MACD130 價格基礎 V16' && git push)
