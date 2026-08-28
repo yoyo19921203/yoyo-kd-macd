@@ -1,0 +1,47 @@
+=== MACD130 CROSS-DATE PARAM GRID V14 ===
+dates=['2026-08-25', '2026-08-26', '2026-08-27']
+rows=2026-08-25:129, 2026-08-26:158, 2026-08-27:332
+union=441 cache=441 missing=0
+truth_field=macd130; price=Yahoo raw Close + PRE_MUL splits; slow=130; criterion=SIGNAL>0
+
+TOP 30
+f=19 signal=02 BAD=7 tested=619 08-25=1 08-26=1 08-27=5
+f=06 signal=13 BAD=8 tested=619 08-25=1 08-26=0 08-27=7
+f=07 signal=12 BAD=8 tested=619 08-25=1 08-26=1 08-27=6
+f=08 signal=11 BAD=8 tested=619 08-25=1 08-26=1 08-27=6
+f=08 signal=12 BAD=8 tested=619 08-25=1 08-26=1 08-27=6
+f=09 signal=10 BAD=8 tested=619 08-25=1 08-26=1 08-27=6
+f=09 signal=11 BAD=8 tested=619 08-25=1 08-26=1 08-27=6
+f=09 signal=12 BAD=8 tested=619 08-25=2 08-26=1 08-27=5
+f=10 signal=09 BAD=8 tested=619 08-25=1 08-26=1 08-27=6
+f=10 signal=10 BAD=8 tested=619 08-25=1 08-26=1 08-27=6
+f=11 signal=08 BAD=8 tested=619 08-25=1 08-26=1 08-27=6
+f=11 signal=09 BAD=8 tested=619 08-25=1 08-26=1 08-27=6
+f=12 signal=07 BAD=8 tested=619 08-25=1 08-26=1 08-27=6
+f=12 signal=08 BAD=8 tested=619 08-25=1 08-26=1 08-27=6
+f=12 signal=09 BAD=8 tested=619 08-25=2 08-26=1 08-27=5
+f=13 signal=06 BAD=8 tested=619 08-25=1 08-26=0 08-27=7
+f=16 signal=05 BAD=8 tested=619 08-25=1 08-26=1 08-27=6
+f=17 signal=04 BAD=8 tested=619 08-25=1 08-26=1 08-27=6
+f=17 signal=05 BAD=8 tested=619 08-25=1 08-26=1 08-27=6
+f=18 signal=04 BAD=8 tested=619 08-25=1 08-26=1 08-27=6
+f=20 signal=02 BAD=8 tested=619 08-25=1 08-26=1 08-27=6
+f=05 signal=15 BAD=9 tested=619 08-25=1 08-26=1 08-27=7
+f=06 signal=14 BAD=9 tested=619 08-25=1 08-26=1 08-27=7
+f=06 signal=15 BAD=9 tested=619 08-25=1 08-26=1 08-27=7
+f=07 signal=13 BAD=9 tested=619 08-25=1 08-26=1 08-27=7
+f=07 signal=14 BAD=9 tested=619 08-25=1 08-26=1 08-27=7
+f=08 signal=13 BAD=9 tested=619 08-25=2 08-26=1 08-27=6
+f=10 signal=11 BAD=9 tested=619 08-25=2 08-26=1 08-27=6
+f=11 signal=10 BAD=9 tested=619 08-25=2 08-26=1 08-27=6
+f=13 signal=07 BAD=9 tested=619 08-25=1 08-26=1 08-27=7
+
+BEST f=19 signal=2 BAD=7
+BEST_MISMATCHES
+2026-08-25:8928:False->True:0.19126
+2026-08-26:1711:False->True:0.18965
+2026-08-27:2313:False->True:1.87912
+2026-08-27:5871:False->True:0.50776
+2026-08-27:4908:False->True:1.10550
+2026-08-27:6517:False->True:1.03772
+2026-08-27:8390:True->False:-0.30872
