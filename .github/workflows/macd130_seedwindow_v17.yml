@@ -1,0 +1,127 @@
+name: MACD130 EMA 初始化與歷史窗診斷 V17
+on:
+  workflow_dispatch:
+  push:
+    paths: ['.github/workflows/macd130_seedwindow_v17.yml']
+permissions:
+  contents: write
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - run: pip install pandas numpy yfinance requests
+      - name: 掃描 EMA seed 與歷史起點
+        run: |
+          python - <<'PY'
+          import json, requests, numpy as np, pandas as pd, yfinance as yf
+          from pathlib import Path
+          URL='https://yachia2002.github.io/kd-macd-public-report/'
+          html=requests.get(URL,timeout=30).text
+          a=html.find('const HISTORY = '); p=html.find('{',a); dep=0; ins=False; esc=False
+          for j in range(p,len(html)):
+              c=html[j]
+              if ins:
+                  if esc: esc=False
+                  elif c=='\\': esc=True
+                  elif c=='"': ins=False
+                  continue
+              if c=='"': ins=True
+              elif c=='{': dep+=1
+              elif c=='}':
+                  dep-=1
+                  if dep==0: q=j+1; break
+          H=json.loads(html[p:q])
+          dates=['2026-08-25','2026-08-26','2026-08-27']
+          focus={'8928','1711','2313','5871','4908','6517','8390','3105','3624','3680','5291','3219','8358'}
+          refs=[]; allrefs=[]
+          for d in dates:
+              for r in H[d]:
+                  code=str(r.get('code','')).strip(); market=str(r.get('market',''))
+                  t=code+('.TW' if '上市' in market else '.TWO')
+                  item=(d,code,t,bool(r.get('macd130')))
+                  allrefs.append(item)
+                  if code in focus: refs.append(item)
+          tickers=sorted(set(x[2] for x in allrefs)); cache={}
+          for t in tickers:
+              h=yf.Ticker(t).history(period='max',auto_adjust=False,actions=True)
+              if h.empty: continue
+              if h.index.tz is not None: h.index=h.index.tz_localize(None)
+              O=h.Open.astype(float); Hi=h.High.astype(float); L=h.Low.astype(float); C=h.Close.astype(float)
+              A=h['Adj Close'].astype(float) if 'Adj Close' in h else C
+              sp=h.get('Stock Splits',pd.Series(0,index=h.index))
+              Op,Hp,Lp,Cp=O.copy(),Hi.copy(),L.copy(),C.copy()
+              for dt,ratio in sp[sp!=0].items():
+                  rr=float(ratio)
+                  if rr>0:
+                      for s in (Op,Hp,Lp,Cp): s.loc[s.index<dt]*=rr
+              fac=(A/C).replace([np.inf,-np.inf],np.nan).fillna(1.0)
+              cache[t]={'RAW_WCL':(2*C+Hi+L)/4,'PRE_WCL':(2*Cp+Hp+Lp)/4,'ADJ_WCL':(2*(C*fac)+(Hi*fac)+(L*fac))/4,'RAW_CLOSE':C,'PRE_CLOSE':Cp,'ADJ_CLOSE':A}
+          def ema_first(x,span): return x.ewm(span=span,adjust=False).mean()
+          def ema_sma_seed(x,span):
+              arr=x.to_numpy(dtype=float); out=np.full(len(arr),np.nan)
+              if len(arr)<span: return pd.Series(out,index=x.index)
+              out[span-1]=np.nanmean(arr[:span]); alpha=2/(span+1)
+              for i in range(span,len(arr)): out[i]=alpha*arr[i]+(1-alpha)*out[i-1]
+              return pd.Series(out,index=x.index)
+          def calc(x,f,s,seed):
+              ef=ema_first(x,f) if seed=='FIRST' else ema_sma_seed(x,f)
+              es=ema_first(x,130) if seed=='FIRST' else ema_sma_seed(x,130)
+              dif=ef-es; valid=dif.dropna()
+              sig=(ema_first(valid,s) if seed=='FIRST' else ema_sma_seed(valid,s)).reindex(x.index)
+              return dif,sig
+          rows=[]
+          for basis in ['PRE_CLOSE','PRE_WCL','RAW_CLOSE','RAW_WCL','ADJ_CLOSE','ADJ_WCL']:
+              for seed in ['FIRST','SMA']:
+                  for window in [0,130,260,500,1000]:
+                      for f in range(2,31):
+                        for s in range(2,16):
+                          bad=[]; tested=0
+                          for d,code,t,exp in refs:
+                            if t not in cache: continue
+                            x=cache[t][basis]; x=x[x.index<=pd.Timestamp(d)]
+                            if window and len(x)>window: x=x.iloc[-window:]
+                            if len(x)<130: continue
+                            _,sig=calc(x,f,s,seed)
+                            if sig.dropna().empty: continue
+                            got=bool(sig.dropna().iloc[-1]>0); tested+=1
+                            if got!=exp: bad.append(f'{d}:{code}')
+                          rows.append((len(bad),basis,seed,window,f,s,tested,bad))
+          rows.sort(key=lambda z:(z[0],-z[6],z[1],z[2],z[3],z[4],z[5]))
+          chosen=[]; seen=set()
+          for r in rows:
+              key=r[1:6]
+              if key not in seen: chosen.append(r); seen.add(key)
+              if len(chosen)>=12: break
+          full=[]
+          for _,basis,seed,window,f,s,_,_ in chosen:
+              bad=[]; tested=0
+              for d,code,t,exp in allrefs:
+                  if t not in cache: continue
+                  x=cache[t][basis]; x=x[x.index<=pd.Timestamp(d)]
+                  if window and len(x)>window: x=x.iloc[-window:]
+                  if len(x)<130: continue
+                  _,sig=calc(x,f,s,seed)
+                  if sig.dropna().empty: continue
+                  got=bool(sig.dropna().iloc[-1]>0); tested+=1
+                  if got!=exp: bad.append(f'{d}:{code}')
+              full.append((len(bad),basis,seed,window,f,s,tested,bad))
+          full.sort(key=lambda z:(z[0],-z[6],z[1],z[2],z[3],z[4],z[5]))
+          out=['=== MACD130 SEED/WINDOW V17 ===',f'FOCUS_REFS={len(refs)} ALL_REFS={len(allrefs)}','','FOCUS TOP 30']
+          for bad,basis,seed,window,f,s,tested,b in rows[:30]:
+              out.append(f'BAD={bad} basis={basis} seed={seed} window={window or "MAX"} f={f} signal={s} tested={tested} mism={",".join(b)}')
+          out += ['', 'FULL VALIDATION OF FOCUS WINNERS']
+          for bad,basis,seed,window,f,s,tested,b in full:
+              out.append(f'BAD={bad} basis={basis} seed={seed} window={window or "MAX"} f={f} signal={s} tested={tested} mism={",".join(b[:40])}')
+          Path('docs/data/macd130_seedwindow_v17.txt').write_text('\n'.join(out),encoding='utf-8')
+          print('\n'.join(out))
+          PY
+      - name: 提交結果
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/data/macd130_seedwindow_v17.txt
+          git diff --cached --quiet || (git commit -m '完成 MACD130 EMA 初始化與歷史窗診斷 V17' && git push)
