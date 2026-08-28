@@ -1,0 +1,196 @@
+name: 凱基 0826 精準名單擷取 V2
+
+on:
+  push:
+    paths:
+      - '.github/workflows/kgi_reference_extract_v2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 解析凱基 2026-08-26 HISTORY 與篩選交集
+        run: |
+          python - <<'PY'
+          import json
+          import re
+          import urllib.request
+          from pathlib import Path
+
+          DATE = "2026-08-26"
+          url = "https://raw.githubusercontent.com/yachia2002/kd-macd-public-report/44f1cfbfb7eaa8a0d07200dd65aef26d837d4c80/index.html"
+
+          req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+          with urllib.request.urlopen(req, timeout=60) as r:
+              html = r.read().decode("utf-8", errors="replace")
+
+          start = html.find("const HISTORY = ")
+          if start < 0:
+              raise SystemExit("找不到 const HISTORY")
+
+          start = html.find("{", start)
+
+          # 用括號深度找出完整 HISTORY JSON，避免巨大單行造成 regex 不穩。
+          depth = 0
+          in_string = False
+          escaped = False
+          end = None
+
+          for i in range(start, len(html)):
+              ch = html[i]
+
+              if in_string:
+                  if escaped:
+                      escaped = False
+                  elif ch == "\\":
+                      escaped = True
+                  elif ch == '"':
+                      in_string = False
+                  continue
+
+              if ch == '"':
+                  in_string = True
+              elif ch == "{":
+                  depth += 1
+              elif ch == "}":
+                  depth -= 1
+                  if depth == 0:
+                      end = i + 1
+                      break
+
+          if end is None:
+              raise SystemExit("HISTORY JSON 沒有正確結束")
+
+          history = json.loads(html[start:end])
+          rows = history.get(DATE)
+          if rows is None:
+              raise SystemExit(f"HISTORY 中沒有 {DATE}")
+
+          def yes(row, key):
+              return row.get(key) is True
+
+          groups = {
+              "all": rows,
+              "volume_true": [r for r in rows if yes(r, "volume")],
+              "strong_true": [r for r in rows if yes(r, "strong")],
+              "macd130_true": [r for r in rows if yes(r, "macd130")],
+              "signal130_true": [r for r in rows if yes(r, "signal130")],
+              "volume_and_strong": [
+                  r for r in rows
+                  if yes(r, "volume") and yes(r, "strong")
+              ],
+              "strong_and_macd130": [
+                  r for r in rows
+                  if yes(r, "strong") and yes(r, "macd130")
+              ],
+              "volume_and_macd130": [
+                  r for r in rows
+                  if yes(r, "volume") and yes(r, "macd130")
+              ],
+              "volume_strong_macd130": [
+                  r for r in rows
+                  if yes(r, "volume") and yes(r, "strong") and yes(r, "macd130")
+              ],
+              "volume_strong_signal130": [
+                  r for r in rows
+                  if yes(r, "volume") and yes(r, "strong") and yes(r, "signal130")
+              ],
+          }
+
+          keep_keys = [
+              "market", "code", "name", "kd", "macd",
+              "volume", "strong", "strong130", "strong60",
+              "signal130", "signal60", "macd130", "macd60",
+              "avgVolume20", "rs5", "rs20", "close", "streak"
+          ]
+
+          def compact(r):
+              return {k: r.get(k) for k in keep_keys if k in r}
+
+          summary = {
+              "source": url,
+              "date": DATE,
+              "html_length": len(html),
+              "counts": {k: len(v) for k, v in groups.items()},
+              "groups": {
+                  k: [compact(r) for r in v]
+                  for k, v in groups.items()
+                  if k != "all"
+              },
+          }
+
+          out_json = Path("docs/data/kgi_reference_20260826_summary.json")
+          out_json.parent.mkdir(parents=True, exist_ok=True)
+          out_json.write_text(
+              json.dumps(summary, ensure_ascii=False, indent=2),
+              encoding="utf-8"
+          )
+
+          lines = [
+              f"SOURCE={url}",
+              f"DATE={DATE}",
+              f"TOTAL={len(rows)}",
+              "",
+              "COUNTS",
+          ]
+
+          for k, v in summary["counts"].items():
+              lines.append(f"{k}={v}")
+
+          for key in [
+              "volume_strong_macd130",
+              "volume_strong_signal130",
+              "strong_and_macd130",
+              "volume_and_strong",
+              "macd130_true",
+          ]:
+              vals = groups[key]
+              lines += ["", f"### {key} ({len(vals)})"]
+              for r in vals:
+                  lines.append(
+                      f'{r.get("code")} {r.get("name")} | '
+                      f'market={r.get("market")} volume={r.get("volume")} '
+                      f'strong={r.get("strong")} strong130={r.get("strong130")} '
+                      f'signal130={r.get("signal130")} macd130={r.get("macd130")} '
+                      f'vol20={r.get("avgVolume20")} rs5={r.get("rs5")} '
+                      f'rs20={r.get("rs20")} close={r.get("close")}'
+                  )
+
+          lines += ["", "### 3324"]
+          found_3324 = [r for r in rows if str(r.get("code")) == "3324"]
+
+          if found_3324:
+              for r in found_3324:
+                  lines.append(
+                      json.dumps(compact(r), ensure_ascii=False, sort_keys=True)
+                  )
+          else:
+              lines.append("NOT_FOUND")
+
+          out_txt = Path("docs/data/kgi_reference_20260826_summary.txt")
+          out_txt.write_text("\n".join(lines), encoding="utf-8")
+
+          print("TOTAL", len(rows))
+          for k, v in summary["counts"].items():
+              print(k, v)
+          print("3324", found_3324)
+          print("WROTE", out_json, out_txt)
+          PY
+
+      - name: 提交精準擷取結果
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/data/kgi_reference_20260826_summary.json docs/data/kgi_reference_20260826_summary.txt
+          if git diff --cached --quiet; then
+            echo 'no changes'
+          else
+            git commit -m '產生凱基 0826 精準篩選摘要'
+            git push
+          fi
