@@ -1,0 +1,128 @@
+name: MACD130 全158檔長歷史診斷 V7
+
+on:
+  push:
+    paths:
+      - '.github/workflows/macd130_all158_diag_v7.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install pandas numpy yfinance
+
+      - name: 全158檔診斷
+        run: |
+          python - <<'PY'
+          import re
+          from pathlib import Path
+          import pandas as pd
+          import yfinance as yf
+
+          txt = Path('docs/data/kgi_formula_compare_20260826.txt').read_text(encoding='utf-8')
+          # 利用 compare 檔的 MACD mismatch 區段還原 KGI macd130 真值：
+          # compare 是以原 signal weighted 計算；先讀 20260826 本地資料取得全158候選，
+          # 再從 compare mismatch 清單翻轉原判定。
+          import json
+          data=json.loads(Path('docs/data/20260826.json').read_text(encoding='utf-8'))
+          if isinstance(data,dict):
+              for k in ['data','stocks','rows','items']:
+                  if isinstance(data.get(k),list): data=data[k]; break
+          rows=[]
+          for r in data:
+              code=str(r.get('code') or r.get('stock_id') or '').strip()
+              if not code: continue
+              # 只取 compare 中出現的 158 檔 universe：抓所有「四碼 名稱 | KGI=」代碼
+              if re.search(rf'(?m)^{re.escape(code)}\s+.*\|\s*KGI=',txt):
+                  rows.append(r)
+          # 更穩定：從 macd_signal_weighted mismatch 區段直接抓 mismatch codes/KGI
+          sec=txt.split('### macd_signal_weighted MISMATCH',1)[1]
+          sec=sec.split('\n### ',1)[0]
+          mismatch={}
+          for line in sec.splitlines():
+              m=re.match(r'^(\d{4})\s+(.+?)\s*\|\s*KGI=(True|False)\s+YOYO=(True|False)',line)
+              if m: mismatch[m.group(1)]=(m.group(3)=='True')
+          # compare 檔內所有 KGI 參考股票 universe
+          universe={}
+          for m in re.finditer(r'(?m)^(\d{4})\s+([^|\n]+?)\s*\|\s*KGI=(True|False)\s+YOYO=(True|False)',txt):
+              universe.setdefault(m.group(1),m.group(2).strip())
+          # 若 universe 因只含 mismatch 不足，從 20260826 json 搭配 compare 的 computed=158：
+          # 使用 JSON 中有 kgi/kd/macd 比對相關欄位者；否則由公式 compare 的 MACD mismatch + 已知原判定重算真值。
+          local={str(r.get('code') or r.get('stock_id') or '').strip():r for r in data if isinstance(r,dict)}
+          # 直接以 compare 當時的原公式重算 YOYO signal，再用 mismatch 表翻轉，對所有本地股票篩出 compare 參考集合：
+          # 參考集合實際是符合前置條件的158檔，JSON常帶 selected/preFilter 類欄位；優先找能得到158的布林欄位組。
+          candidates=[]
+          boolkeys=set()
+          for r in data:
+              if isinstance(r,dict):
+                  boolkeys |= {k for k,v in r.items() if isinstance(v,bool)}
+          for k in boolkeys:
+              a=[r for r in data if r.get(k) is True]
+              if len(a)==158:
+                  candidates=a; break
+          if not candidates:
+              # 從 compare 各 mismatch 區段代碼聯集通常涵蓋大部分但非全部；改讀 v5 診斷腳本內嵌參考來源
+              wf=Path('.github/workflows/kgi_kd3_macd_diag_v5.yml').read_text(encoding='utf-8')
+              codes=re.findall(r"['\"](\d{4})['\"]",wf)
+              uc=list(dict.fromkeys(codes))
+              if len(uc)>=150:
+                  candidates=[local[c] for c in uc if c in local]
+          if len(candidates)!=158:
+              raise RuntimeError(f'無法還原158檔 universe，目前={len(candidates)}，boolkeys={sorted(boolkeys)}')
+
+          TARGET=pd.Timestamp('2026-08-26')
+          scores={}; fail=[]
+          for n,r in enumerate(candidates,1):
+              code=str(r.get('code') or r.get('stock_id'))
+              name=str(r.get('name',''))
+              market=str(r.get('market',''))
+              ticker=code+('.TW' if market=='上市' else '.TWO')
+              try:
+                  h=yf.Ticker(ticker).history(period='max',auto_adjust=False,actions=False)
+              except Exception as e:
+                  fail.append([code,str(e)]); continue
+              if h.empty: fail.append([code,'empty']); continue
+              if h.index.tz is not None: h.index=h.index.tz_localize(None)
+              h=h[h.index<=TARGET]
+              # 原 compare signal weighted 真值，若在 mismatch 表用KGI；不在則 KGI=原公式結果
+              price0=(2*h.Close+h.High+h.Low)/4
+              dif0=price0.ewm(span=12,adjust=False).mean()-price0.ewm(span=130,adjust=False).mean()
+              original=bool(dif0.ewm(span=9,adjust=False).mean().iloc[-1]>0)
+              expected=mismatch.get(code,original)
+              for pm in ['close','weighted','typical']:
+                  price=h.Close if pm=='close' else ((2*h.Close+h.High+h.Low)/4 if pm=='weighted' else (h.High+h.Low+h.Close)/3)
+                  for fast in [6,12,26]:
+                    for signaln in [5,9]:
+                      for adj in [False,True]:
+                        dif=price.ewm(span=fast,adjust=adj).mean()-price.ewm(span=130,adjust=adj).mean()
+                        sig=dif.ewm(span=signaln,adjust=adj).mean()
+                        vals={'signal':sig.iloc[-1],'dif':dif.iloc[-1],'hist':dif.iloc[-1]-sig.iloc[-1]}
+                        for metric,val in vals.items():
+                          key=f'{pm}_f{fast}_s{signaln}_adj{adj}_{metric}'
+                          z=scores.setdefault(key,{'hit':0,'total':0,'bad':[]}); z['total']+=1
+                          if bool(val>0)==expected:z['hit']+=1
+                          elif len(z['bad'])<40:z['bad'].append([code,name,expected,round(float(val),6),str(h.index.min().date()),len(h)])
+              if n%20==0: print(n,'/',len(candidates))
+
+          rank=sorted(scores.items(),key=lambda x:(x[1]['total']-x[1]['hit'],x[0]))
+          out=['=== MACD130 V7 ===',f'REF={len(candidates)} FAIL={len(fail)}','=== TOP ===']
+          for k,v in rank[:30]: out.append(f"{k}: {v['hit']}/{v['total']} mismatch={v['total']-v['hit']} bad={v['bad']}")
+          Path('docs/data/macd130_all158_diag_v7.txt').write_text('\n'.join(out),encoding='utf-8')
+          print('\n'.join(out))
+          PY
+
+      - name: 提交結果
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/data/macd130_all158_diag_v7.txt
+          git diff --cached --quiet || (git commit -m '完成 MACD130 全158檔診斷 V7' && git push)
