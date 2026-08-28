@@ -1,0 +1,78 @@
+name: MACD130 跨日期真值修正版 V13
+on:
+  push:
+    paths: ['.github/workflows/macd130_crossdate_validate_v13.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - run: pip install pandas yfinance requests
+      - name: 用正確 macd130 欄位跨日期驗證
+        run: |
+          python - <<'PY'
+          import json,requests
+          from pathlib import Path
+          import pandas as pd, yfinance as yf
+          URL='https://yachia2002.github.io/kd-macd-public-report/'
+          html=requests.get(URL,timeout=30).text
+          m='const HISTORY = '; a=html.find(m); p=html.find('{',a)
+          dep=0; ins=False; esc=False; q=None
+          for j in range(p,len(html)):
+            c=html[j]
+            if ins:
+              if esc: esc=False
+              elif c=='\\': esc=True
+              elif c=='"': ins=False
+              continue
+            if c=='"': ins=True
+            elif c=='{': dep+=1
+            elif c=='}':
+              dep-=1
+              if dep==0:q=j+1;break
+          hist=json.loads(html[p:q])
+          dates=[d for d in ['2026-08-25','2026-08-26','2026-08-27'] if d in hist]
+          out=['=== MACD130 CROSS-DATE V13 ===',f'dates={dates}']
+          grand_n=grand_bad=0
+          for ds in dates:
+            target=pd.Timestamp(ds); rows=hist[ds]; mism=[]; n=0
+            truth_true=0
+            for r in rows:
+              code=str(r.get('code','')).strip()
+              if not code:continue
+              expected=bool(r.get('macd130'))   # authoritative field from V4
+              truth_true+=expected
+              market=str(r.get('market',''))
+              ticker=code+('.TW' if '上市' in market else '.TWO')
+              h=yf.Ticker(ticker).history(period='max',auto_adjust=False,actions=True)
+              if h.empty:continue
+              if h.index.tz is not None:h.index=h.index.tz_localize(None)
+              h=h[h.index<=target]
+              if h.empty:continue
+              pc=h.Close.copy()
+              sp=h.get('Stock Splits',pd.Series(0,index=h.index))
+              for dt,ratio in sp[sp!=0].items():
+                if pd.notna(ratio) and ratio>0: pc.loc[pc.index<dt]*=float(ratio)
+              dif=pc.ewm(span=12,adjust=False).mean()-pc.ewm(span=130,adjust=False).mean()
+              sig=dif.ewm(span=6,adjust=False).mean()
+              got=bool(sig.iloc[-1]>0); n+=1
+              if got!=expected:mism.append(f'{code}:{expected}->{got}:{sig.iloc[-1]:.5f}')
+            grand_n+=n; grand_bad+=len(mism)
+            out.append(f'{ds}: rows={len(rows)} tested={n} KGI_TRUE={truth_true} BAD={len(mism)}')
+            out.append('  '+('; '.join(mism[:60]) if mism else 'PERFECT'))
+          out.append(f'GRAND tested={grand_n} bad={grand_bad}')
+          Path('docs/data/macd130_crossdate_v13.txt').write_text('\n'.join(out),encoding='utf-8')
+          print('\n'.join(out))
+          PY
+      - name: 提交結果
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/data/macd130_crossdate_v13.txt
+          git diff --cached --quiet || (git commit -m '修正真值並跨日期驗證 MACD130 V13' && git push)
