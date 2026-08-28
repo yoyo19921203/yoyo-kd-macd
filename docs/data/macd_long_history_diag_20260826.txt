@@ -1,0 +1,147 @@
+KGI MACD130 長歷史／還原價診斷
+TARGET=2026-08-26
+
+
+### 1598 岱宇 expected=False ticker=1598.TW
+RAW rows=880 first=2023-01-03 close=20.600000 volume=118449
+RAW_LONG_weighted_adjustF: signal=-0.06094880 dif=0.05008040 sign=False match=True
+RAW_LONG_weighted_adjustT: signal=-0.06092415 dif=0.05010351 sign=False match=True
+RAW_LONG_close_adjustF: signal=-0.05712609 dif=0.06210776 sign=False match=True
+RAW_LONG_close_adjustT: signal=-0.05710105 dif=0.06213123 sign=False match=True
+RAW_SHORT_weighted_adjustF: signal=0.02478034 dif=0.13049300 sign=True match=False
+RAW_SHORT_weighted_adjustT: signal=0.14280421 dif=0.23968303 sign=True match=False
+RAW_SHORT_close_adjustF: signal=0.03290556 dif=0.14655604 sign=True match=False
+RAW_SHORT_close_adjustT: signal=0.14804936 dif=0.25295682 sign=True match=False
+ADJ rows=880 first=2023-01-03 close=20.600000 volume=118449
+ADJ_LONG_weighted_adjustF: signal=0.24024449 dif=0.33361690 sign=True match=False
+ADJ_LONG_weighted_adjustT: signal=0.24026641 dif=0.33363743 sign=True match=False
+ADJ_LONG_close_adjustF: signal=0.24406452 dif=0.34563969 sign=True match=False
+ADJ_LONG_close_adjustT: signal=0.24408681 dif=0.34566057 sign=True match=False
+ADJ_SHORT_weighted_adjustF: signal=0.31814531 dif=0.40668666 sign=True match=False
+ADJ_SHORT_weighted_adjustT: signal=0.41469708 dif=0.49431614 sign=True match=False
+ADJ_SHORT_close_adjustF: signal=0.32615865 dif=0.42264272 sign=True match=False
+ADJ_SHORT_close_adjustT: signal=0.41990018 dif=0.50754867 sign=True match=False
+MATCH_VARIANTS=RAW_LONG_weighted_adjustF,RAW_LONG_weighted_adjustT,RAW_LONG_close_adjustF,RAW_LONG_close_adjustT
+
+### 3219 倚強科 expected=True ticker=3219.TWO
+RAW rows=880 first=2023-01-03 close=76.900002 volume=398130
+RAW_LONG_weighted_adjustF: signal=0.37552804 dif=2.15846563 sign=True match=True
+RAW_LONG_weighted_adjustT: signal=0.37549423 dif=2.15843366 sign=True match=True
+RAW_LONG_close_adjustF: signal=0.41095928 dif=2.37058663 sign=True match=True
+RAW_LONG_close_adjustT: signal=0.41092608 dif=2.37055521 sign=True match=True
+RAW_SHORT_weighted_adjustF: signal=0.56816115 dif=2.33915249 sign=True match=True
+RAW_SHORT_weighted_adjustT: signal=-0.30158490 dif=1.51187532 sign=False match=False
+RAW_SHORT_close_adjustF: signal=0.72338436 dif=2.66363652 sign=True match=True
+RAW_SHORT_close_adjustT: signal=-0.25836186 dif=1.72979510 sign=False match=False
+ADJ rows=880 first=2023-01-03 close=76.900002 volume=398130
+ADJ_LONG_weighted_adjustF: signal=1.37485361 dif=3.13708597 sign=True match=True
+ADJ_LONG_weighted_adjustT: signal=1.37481813 dif=3.13705234 sign=True match=True
+ADJ_LONG_close_adjustF: signal=1.40698108 dif=3.34586953 sign=True match=True
+ADJ_LONG_close_adjustT: signal=1.40694620 dif=3.34583644 sign=True match=True
+ADJ_SHORT_weighted_adjustF: signal=1.55862235 dif=3.30945820 sign=True match=True
+ADJ_SHORT_weighted_adjustT: signal=0.67622541 dif=2.46492948 sign=True match=True
+ADJ_SHORT_close_adjustF: signal=1.70809877 dif=3.62831326 sign=True match=True
+ADJ_SHORT_close_adjustT: signal=0.71614180 dif=2.67952807 sign=True match=True
+MATCH_VARIANTS=RAW_LONG_weighted_adjustF,RAW_LONG_weighted_adjustT,RAW_LONG_close_adjustF,RAW_LONG_close_adjustT,RAW_SHORT_weighted_adjustF,RAW_SHORT_close_adjustF,ADJ_LONG_weighted_adjustF,ADJ_LONG_weighted_adjustT,ADJ_LONG_close_adjustF,ADJ_LONG_close_adjustT,ADJ_SHORT_weighted_adjustF,ADJ_SHORT_weighted_adjustT,ADJ_SHORT_close_adjustF,ADJ_SHORT_close_adjustT
+
+### 3324 雙鴻 expected=True ticker=3324.TWO
+RAW rows=880 first=2023-01-03 close=1075.000000 volume=3723471
+RAW_LONG_weighted_adjustF: signal=7.64563047 dif=23.79064266 sign=True match=True
+RAW_LONG_weighted_adjustT: signal=7.64445268 dif=23.78953515 sign=True match=True
+RAW_LONG_close_adjustF: signal=8.02377941 dif=26.48040253 sign=True match=True
+RAW_LONG_close_adjustT: signal=8.02260613 dif=26.47929893 sign=True match=True
+RAW_SHORT_weighted_adjustF: signal=2.05887363 dif=18.55035135 sign=True match=True
+RAW_SHORT_weighted_adjustT: signal=-5.86912011 dif=11.02437389 sign=False match=False
+RAW_SHORT_close_adjustF: signal=2.29636308 dif=21.10817481 sign=True match=True
+RAW_SHORT_close_adjustT: signal=-5.49360698 dif=13.69298903 sign=False match=False
+ADJ rows=880 first=2023-01-03 close=1075.000000 volume=3723471
+ADJ_LONG_weighted_adjustF: signal=13.37799236 dif=29.17406366 sign=True match=True
+ADJ_LONG_weighted_adjustT: signal=13.37681084 dif=29.17295214 sign=True match=True
+ADJ_LONG_close_adjustF: signal=13.74480085 dif=31.85317791 sign=True match=True
+ADJ_LONG_close_adjustT: signal=13.74362373 dif=31.85207019 sign=True match=True
+ADJ_SHORT_weighted_adjustF: signal=7.75527932 dif=23.90004600 sign=True match=True
+ADJ_SHORT_weighted_adjustT: signal=-0.53530243 dif=16.00621044 sign=False match=False
+ADJ_SHORT_close_adjustF: signal=7.98303277 dif=26.44872878 sign=True match=True
+ADJ_SHORT_close_adjustT: signal=-0.17009597 dif=18.66520322 sign=False match=False
+MATCH_VARIANTS=RAW_LONG_weighted_adjustF,RAW_LONG_weighted_adjustT,RAW_LONG_close_adjustF,RAW_LONG_close_adjustT,RAW_SHORT_weighted_adjustF,RAW_SHORT_close_adjustF,ADJ_LONG_weighted_adjustF,ADJ_LONG_weighted_adjustT,ADJ_LONG_close_adjustF,ADJ_LONG_close_adjustT,ADJ_SHORT_weighted_adjustF,ADJ_SHORT_close_adjustF
+
+### 5291 邑昇 expected=True ticker=5291.TWO
+RAW rows=880 first=2023-01-03 close=60.900002 volume=1232570
+RAW_LONG_weighted_adjustF: signal=-0.34731963 dif=1.10326073 sign=False match=False
+RAW_LONG_weighted_adjustT: signal=-0.34735290 dif=1.10322938 sign=False match=False
+RAW_LONG_close_adjustF: signal=-0.35310277 dif=1.20290845 sign=False match=False
+RAW_LONG_close_adjustT: signal=-0.35313582 dif=1.20287729 sign=False match=False
+RAW_SHORT_weighted_adjustF: signal=-0.52540813 dif=0.93621648 sign=False match=False
+RAW_SHORT_weighted_adjustT: signal=-2.80359751 dif=-1.19644261 sign=False match=False
+RAW_SHORT_close_adjustF: signal=-0.51144157 dif=1.05438912 sign=False match=False
+RAW_SHORT_close_adjustT: signal=-2.79594958 dif=-1.08498299 sign=False match=False
+ADJ rows=880 first=2023-01-03 close=60.900002 volume=1232570
+ADJ_LONG_weighted_adjustF: signal=-0.34698631 dif=1.10357338 sign=False match=False
+ADJ_LONG_weighted_adjustT: signal=-0.34702425 dif=1.10353765 sign=False match=False
+ADJ_LONG_close_adjustF: signal=-0.35276949 dif=1.20322107 sign=False match=False
+ADJ_LONG_close_adjustT: signal=-0.35280721 dif=1.20318552 sign=False match=False
+ADJ_SHORT_weighted_adjustF: signal=-0.52540813 dif=0.93621648 sign=False match=False
+ADJ_SHORT_weighted_adjustT: signal=-2.80359751 dif=-1.19644261 sign=False match=False
+ADJ_SHORT_close_adjustF: signal=-0.51144157 dif=1.05438912 sign=False match=False
+ADJ_SHORT_close_adjustT: signal=-2.79594958 dif=-1.08498299 sign=False match=False
+MATCH_VARIANTS=
+
+### 6147 頎邦 expected=True ticker=6147.TWO
+RAW rows=880 first=2023-01-03 close=185.500000 volume=29817737
+RAW_LONG_weighted_adjustF: signal=1.49760489 dif=4.83186608 sign=True match=True
+RAW_LONG_weighted_adjustT: signal=1.49746527 dif=4.83173456 sign=True match=True
+RAW_LONG_close_adjustF: signal=1.87178580 dif=5.91980219 sign=True match=True
+RAW_LONG_close_adjustT: signal=1.87164685 dif=5.91967118 sign=True match=True
+RAW_SHORT_weighted_adjustF: signal=1.76794349 dif=5.08543949 sign=True match=True
+RAW_SHORT_weighted_adjustT: signal=-6.82237822 dif=-2.96115158 sign=False match=False
+RAW_SHORT_close_adjustF: signal=2.14919149 dif=6.18000443 sign=True match=True
+RAW_SHORT_close_adjustT: signal=-6.43829955 dif=-1.87119314 sign=False match=False
+ADJ rows=880 first=2023-01-03 close=185.500000 volume=29817737
+ADJ_LONG_weighted_adjustF: signal=2.36783409 dif=5.64973443 sign=True match=True
+ADJ_LONG_weighted_adjustT: signal=2.36768030 dif=5.64958955 sign=True match=True
+ADJ_LONG_close_adjustF: signal=2.74155921 dif=6.73723442 sign=True match=True
+ADJ_LONG_close_adjustT: signal=2.74140602 dif=6.73708998 sign=True match=True
+ADJ_SHORT_weighted_adjustF: signal=2.58857340 dif=5.85678449 sign=True match=True
+ADJ_SHORT_weighted_adjustT: signal=-5.98711497 dif=-2.18043171 sign=False match=False
+ADJ_SHORT_close_adjustF: signal=2.96931182 dif=6.95086285 sign=True match=True
+ADJ_SHORT_close_adjustT: signal=-5.60343784 dif=-1.09085635 sign=False match=False
+MATCH_VARIANTS=RAW_LONG_weighted_adjustF,RAW_LONG_weighted_adjustT,RAW_LONG_close_adjustF,RAW_LONG_close_adjustT,RAW_SHORT_weighted_adjustF,RAW_SHORT_close_adjustF,ADJ_LONG_weighted_adjustF,ADJ_LONG_weighted_adjustT,ADJ_LONG_close_adjustF,ADJ_LONG_close_adjustT,ADJ_SHORT_weighted_adjustF,ADJ_SHORT_close_adjustF
+
+### 7712 博盛半導體 expected=True ticker=7712.TWO
+RAW rows=644 first=2023-12-27 close=160.500000 volume=1366150
+RAW_LONG_weighted_adjustF: signal=1.65224866 dif=3.56395761 sign=True match=True
+RAW_LONG_weighted_adjustT: signal=1.65158401 dif=3.56331927 sign=True match=True
+RAW_LONG_close_adjustF: signal=1.86524089 dif=4.26251014 sign=True match=True
+RAW_LONG_close_adjustT: signal=1.86459087 dif=4.26188248 sign=True match=True
+RAW_SHORT_weighted_adjustF: signal=4.23109719 dif=5.98287755 sign=True match=True
+RAW_SHORT_weighted_adjustT: signal=0.07579975 dif=2.07053141 sign=True match=True
+RAW_SHORT_close_adjustF: signal=4.39788143 dif=6.63808770 sign=True match=True
+RAW_SHORT_close_adjustT: signal=0.28178638 dif=2.75787861 sign=True match=True
+ADJ rows=644 first=2023-12-27 close=160.500000 volume=1366150
+ADJ_LONG_weighted_adjustF: signal=3.64934211 dif=6.18189738 sign=True match=True
+ADJ_LONG_weighted_adjustT: signal=3.64848157 dif=6.18106506 sign=True match=True
+ADJ_LONG_close_adjustF: signal=3.85535322 dif=6.87387897 sign=True match=True
+ADJ_LONG_close_adjustT: signal=3.85450694 dif=6.87305701 sign=True match=True
+ADJ_SHORT_weighted_adjustF: signal=6.05558719 dif=8.43891795 sign=True match=True
+ADJ_SHORT_weighted_adjustT: signal=1.98221867 dif=4.58811445 sign=True match=True
+ADJ_SHORT_close_adjustF: signal=6.21672351 dif=9.08880769 sign=True match=True
+ADJ_SHORT_close_adjustT: signal=2.18157984 dif=5.26925904 sign=True match=True
+MATCH_VARIANTS=RAW_LONG_weighted_adjustF,RAW_LONG_weighted_adjustT,RAW_LONG_close_adjustF,RAW_LONG_close_adjustT,RAW_SHORT_weighted_adjustF,RAW_SHORT_weighted_adjustT,RAW_SHORT_close_adjustF,RAW_SHORT_close_adjustT,ADJ_LONG_weighted_adjustF,ADJ_LONG_weighted_adjustT,ADJ_LONG_close_adjustF,ADJ_LONG_close_adjustT,ADJ_SHORT_weighted_adjustF,ADJ_SHORT_weighted_adjustT,ADJ_SHORT_close_adjustF,ADJ_SHORT_close_adjustT
+
+### VARIANT SCORE
+RAW_LONG_close_adjustF: 5/6
+RAW_LONG_close_adjustT: 5/6
+RAW_LONG_weighted_adjustF: 5/6
+RAW_LONG_weighted_adjustT: 5/6
+ADJ_LONG_close_adjustF: 4/6
+ADJ_LONG_close_adjustT: 4/6
+ADJ_LONG_weighted_adjustF: 4/6
+ADJ_LONG_weighted_adjustT: 4/6
+ADJ_SHORT_close_adjustF: 4/6
+ADJ_SHORT_weighted_adjustF: 4/6
+RAW_SHORT_close_adjustF: 4/6
+RAW_SHORT_weighted_adjustF: 4/6
+ADJ_SHORT_close_adjustT: 2/6
+ADJ_SHORT_weighted_adjustT: 2/6
+RAW_SHORT_close_adjustT: 1/6
+RAW_SHORT_weighted_adjustT: 1/6

@@ -620,10 +620,23 @@ def build_report(target_date_str: str, old_lookback_days: int = 5):
             old_candidate = cross_age <= old_lookback_days
             kd_date = g["date"].iloc[last_cross_idx].strftime("%m/%d")
 
-        # 原 KD3：目前 K>D 且 K-D gap 比前一交易日擴大
+        # KD3 強勢：近期 KD 黃金交叉後，K-D 差距持續擴大。
+        # 對照凱基歷史報告：交叉日起最多保留 3 個交易日（cross_age 0~2），
+        # 且從交叉前一交易日至今天，每一天的 K-D gap 都必須嚴格增加。
         kd3 = False
-        if len(g) >= 2 and pd.notna(r["kd_gap"]) and pd.notna(g["kd_gap"].iloc[-2]):
-            kd3 = bool(r["k"] > r["d"] and r["kd_gap"] > g["kd_gap"].iloc[-2])
+        if last_cross_idx is not None:
+            kd3_cross_age = len(g) - 1 - last_cross_idx
+            if 0 <= kd3_cross_age <= 2:
+                kd3_start_idx = max(0, last_cross_idx - 1)
+                kd3_gaps = pd.to_numeric(
+                    g["kd_gap"].iloc[kd3_start_idx:],
+                    errors="coerce",
+                )
+                if len(kd3_gaps) >= 2 and kd3_gaps.notna().all():
+                    kd3 = bool(
+                        (kd3_gaps.diff().dropna() > 0).all()
+                        and r["k"] > r["d"]
+                    )
 
         vol_ok = bool(r["vol5"] > r["vol10"]) if pd.notna(r["vol5"]) and pd.notna(r["vol10"]) else False
         macd_ok = bool(r["macd130"] > 0) if pd.notna(r["macd130"]) else False

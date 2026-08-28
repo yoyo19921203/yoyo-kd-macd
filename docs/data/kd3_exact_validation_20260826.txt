@@ -1,0 +1,8 @@
+TOTAL=158
+MISMATCH=0
+
+RULE:
+1) 最近 KD 黃金交叉 cross_age 必須為 0~2（交叉日起共 3 個交易日）
+2) 從交叉前一交易日至今天，K-D gap 每一日都必須嚴格增加
+
+MISMATCH_ROWS:
