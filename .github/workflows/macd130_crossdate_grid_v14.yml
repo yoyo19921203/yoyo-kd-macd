@@ -1,0 +1,132 @@
+name: MACD130 跨日期參數網格 V14
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/macd130_crossdate_grid_v14.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install pandas yfinance requests
+
+      - name: 跨日期掃描 MACD130 參數
+        run: |
+          python - <<'PY'
+          import json, requests
+          from pathlib import Path
+          import pandas as pd, yfinance as yf
+
+          URL='https://yachia2002.github.io/kd-macd-public-report/'
+          html=requests.get(URL,timeout=30).text
+          m='const HISTORY = '; a=html.find(m); p=html.find('{',a)
+          dep=0; ins=False; esc=False; q=None
+          for j in range(p,len(html)):
+              c=html[j]
+              if ins:
+                  if esc: esc=False
+                  elif c=='\\': esc=True
+                  elif c=='"': ins=False
+                  continue
+              if c=='"': ins=True
+              elif c=='{': dep+=1
+              elif c=='}':
+                  dep-=1
+                  if dep==0: q=j+1; break
+          hist=json.loads(html[p:q])
+          dates=[d for d in ['2026-08-25','2026-08-26','2026-08-27'] if d in hist]
+
+          # 每日名單保持動態，不使用固定 158 檔。
+          refs={}
+          union={}
+          for ds in dates:
+              refs[ds]=[]
+              for r in hist[ds]:
+                  code=str(r.get('code','')).strip()
+                  if not code: continue
+                  market=str(r.get('market',''))
+                  ticker=code+('.TW' if '上市' in market else '.TWO')
+                  expected=bool(r.get('macd130'))
+                  refs[ds].append((code,ticker,expected))
+                  union[ticker]=code
+
+          # 每檔只抓一次長歷史，並依 V11 結論對 split 前價格 PRE_MUL。
+          cache={}
+          missing=[]
+          for ticker,code in union.items():
+              try:
+                  h=yf.Ticker(ticker).history(period='max',auto_adjust=False,actions=True)
+              except Exception:
+                  h=pd.DataFrame()
+              if h.empty:
+                  missing.append(ticker); continue
+              if h.index.tz is not None: h.index=h.index.tz_localize(None)
+              pc=h.Close.astype(float).copy()
+              sp=h.get('Stock Splits',pd.Series(0,index=h.index))
+              for dt,ratio in sp[sp!=0].items():
+                  if pd.notna(ratio) and float(ratio)>0:
+                      pc.loc[pc.index<dt]*=float(ratio)
+              cache[ticker]=pc
+
+          params=[(f,s) for f in range(2,31) for s in range(2,16)]
+          stats={(f,s):{'bad':0,'tested':0,'per':{d:0 for d in dates},'mism':[]} for f,s in params}
+
+          # 同一 ticker/日期先算各 fast 的 DIF，再掃 signal，slow 固定 130。
+          for ds in dates:
+              target=pd.Timestamp(ds)
+              for code,ticker,expected in refs[ds]:
+                  pc=cache.get(ticker)
+                  if pc is None: continue
+                  x=pc[pc.index<=target]
+                  if x.empty: continue
+                  slow=x.ewm(span=130,adjust=False).mean()
+                  for f in range(2,31):
+                      dif=x.ewm(span=f,adjust=False).mean()-slow
+                      for s in range(2,16):
+                          sig=dif.ewm(span=s,adjust=False).mean()
+                          got=bool(sig.iloc[-1]>0)
+                          z=stats[(f,s)]
+                          z['tested']+=1
+                          if got!=expected:
+                              z['bad']+=1; z['per'][ds]+=1
+                              if len(z['mism'])<80:
+                                  z['mism'].append(f'{ds}:{code}:{expected}->{got}:{sig.iloc[-1]:.5f}')
+
+          ranked=sorted(stats.items(), key=lambda kv:(kv[1]['bad'], kv[0][0], kv[0][1]))
+          out=['=== MACD130 CROSS-DATE PARAM GRID V14 ===',
+               f'dates={dates}',
+               f'rows=' + ', '.join(f'{d}:{len(refs[d])}' for d in dates),
+               f'union={len(union)} cache={len(cache)} missing={len(missing)}',
+               'truth_field=macd130; price=Yahoo raw Close + PRE_MUL splits; slow=130; criterion=SIGNAL>0',
+               '',
+               'TOP 30']
+          for (f,s),z in ranked[:30]:
+              per=' '.join(f'{d[-5:]}={z["per"][d]}' for d in dates)
+              out.append(f'f={f:02d} signal={s:02d} BAD={z["bad"]} tested={z["tested"]} {per}')
+          best_key,best=ranked[0]
+          out += ['', f'BEST f={best_key[0]} signal={best_key[1]} BAD={best["bad"]}',
+                  'BEST_MISMATCHES']
+          out += best['mism'] if best['mism'] else ['PERFECT']
+          if missing:
+              out += ['', 'MISSING_TICKERS', '; '.join(missing)]
+
+          Path('docs/data/macd130_crossdate_grid_v14.txt').write_text('\n'.join(out),encoding='utf-8')
+          print('\n'.join(out))
+          PY
+
+      - name: 提交結果
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/data/macd130_crossdate_grid_v14.txt
+          git diff --cached --quiet || (git commit -m '跨日期掃描 MACD130 參數 V14' && git push)
