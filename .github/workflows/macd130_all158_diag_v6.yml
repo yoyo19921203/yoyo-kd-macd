@@ -1,0 +1,247 @@
+name: MACD130 全158檔長歷史診斷 V6
+
+on:
+  push:
+    paths:
+      - '.github/workflows/macd130_all158_diag_v6.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 安裝套件
+        run: pip install pandas numpy yfinance
+
+      - name: 全158檔診斷
+        run: |
+          python - <<'PY'
+          import json
+          import urllib.request
+          from pathlib import Path
+
+          import pandas as pd
+          import yfinance as yf
+
+          DATE = '2026-08-26'
+          TARGET = pd.Timestamp(DATE)
+
+          # 凱基參考頁固定版本
+          URL = 'https://raw.githubusercontent.com/yachia2002/kd-macd-public-report/44f1cfbfb7eaa8a0d07200dd65aef26d837d4c80/index.html'
+
+          req = urllib.request.Request(
+              URL,
+              headers={'User-Agent': 'Mozilla/5.0'}
+          )
+          html = urllib.request.urlopen(req, timeout=60).read().decode(errors='replace')
+
+          # 抓出 const HISTORY = {...}
+          marker = 'const HISTORY = '
+          p = html.find(marker)
+          if p < 0:
+              raise RuntimeError('找不到 const HISTORY')
+
+          p = html.find('{', p)
+          depth = 0
+          ins = False
+          esc = False
+          end = None
+
+          for i in range(p, len(html)):
+              c = html[i]
+
+              if ins:
+                  if esc:
+                      esc = False
+                  elif c == '\\':
+                      esc = True
+                  elif c == '"':
+                      ins = False
+              elif c == '"':
+                  ins = True
+              elif c == '{':
+                  depth += 1
+              elif c == '}':
+                  depth -= 1
+                  if depth == 0:
+                      end = i + 1
+                      break
+
+          if end is None:
+              raise RuntimeError('HISTORY JSON 結尾解析失敗')
+
+          hist = json.loads(html[p:end])
+
+          rows = hist.get('20260826')
+          if not rows:
+              raise RuntimeError('找不到 20260826 凱基資料')
+
+          scores = {}
+          fail = []
+
+          for n, r in enumerate(rows, 1):
+              code = str(r['code']).strip()
+              name = str(r.get('name', '')).strip()
+              expected = bool(r.get('macd130'))
+
+              market = str(r.get('market', '')).strip()
+              ticker = code + ('.TW' if market == '上市' else '.TWO')
+
+              try:
+                  h = yf.Ticker(ticker).history(
+                      period='max',
+                      auto_adjust=False,
+                      actions=False
+                  )
+              except Exception as e:
+                  fail.append([code, name, f'下載例外: {e}'])
+                  continue
+
+              if h.empty:
+                  fail.append([code, name, '無歷史資料'])
+                  continue
+
+              if h.index.tz is not None:
+                  h.index = h.index.tz_localize(None)
+
+              h = h[h.index <= TARGET]
+
+              if h.empty:
+                  fail.append([code, name, '目標日前無資料'])
+                  continue
+
+              for pm in ['close', 'weighted', 'typical']:
+                  if pm == 'close':
+                      price = h['Close']
+                  elif pm == 'weighted':
+                      price = (2 * h['Close'] + h['High'] + h['Low']) / 4
+                  else:
+                      price = (h['High'] + h['Low'] + h['Close']) / 3
+
+                  for fast in [6, 12]:
+                      for adj in [False, True]:
+                          ema_fast = price.ewm(span=fast, adjust=adj).mean()
+                          ema_slow = price.ewm(span=130, adjust=adj).mean()
+
+                          dif = ema_fast - ema_slow
+                          sig = dif.ewm(span=9, adjust=adj).mean()
+                          histv = dif - sig
+
+                          metrics = {
+                              'signal': sig.iloc[-1],
+                              'dif': dif.iloc[-1],
+                              'hist': histv.iloc[-1],
+                          }
+
+                          for metric, val in metrics.items():
+                              key = f'{pm}_fast{fast}_adj{adj}_{metric}'
+
+                              z = scores.setdefault(
+                                  key,
+                                  {
+                                      'hit': 0,
+                                      'total': 0,
+                                      'bad': []
+                                  }
+                              )
+
+                              z['total'] += 1
+
+                              got = bool(val > 0)
+
+                              if got == expected:
+                                  z['hit'] += 1
+                              else:
+                                  if len(z['bad']) < 50:
+                                      z['bad'].append(
+                                          [
+                                              code,
+                                              name,
+                                              expected,
+                                              got,
+                                              round(float(val), 6),
+                                              str(h.index.min().date()),
+                                              len(h)
+                                          ]
+                                      )
+
+              if n % 20 == 0:
+                  print('processed', n, '/', len(rows))
+
+          rank = sorted(
+              scores.items(),
+              key=lambda kv: (
+                  kv[1]['total'] - kv[1]['hit'],
+                  -kv[1]['total'],
+                  kv[0]
+              )
+          )
+
+          out = []
+          out.append('=== MACD130 全158檔長歷史診斷 V6 ===')
+          out.append(f'TARGET={DATE}')
+          out.append(f'REF={len(rows)}')
+          out.append(f'FAIL={len(fail)}')
+          out.append('')
+
+          out.append('=== RANK ===')
+          for k, v in rank:
+              mismatch = v['total'] - v['hit']
+              out.append(
+                  f"{k}: "
+                  f"hit={v['hit']}/{v['total']} "
+                  f"mismatch={mismatch}"
+              )
+
+          out.append('')
+          out.append('=== DETAIL ===')
+
+          for k, v in rank:
+              mismatch = v['total'] - v['hit']
+              out.append('')
+              out.append(
+                  f'[{k}] hit={v["hit"]}/{v["total"]} mismatch={mismatch}'
+              )
+              for bad in v['bad']:
+                  out.append(
+                      'BAD '
+                      + ' | '.join(map(str, bad))
+                  )
+
+          out.append('')
+          out.append('=== DOWNLOAD FAIL ===')
+          for x in fail:
+              out.append('FAIL ' + ' | '.join(map(str, x)))
+
+          Path('docs/data').mkdir(parents=True, exist_ok=True)
+
+          Path('docs/data/macd130_all158_diag_v6.txt').write_text(
+              '\n'.join(out),
+              encoding='utf-8'
+          )
+
+          print('\n'.join(out[:30]))
+          PY
+
+      - name: 提交結果
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+          git add docs/data/macd130_all158_diag_v6.txt
+
+          git diff --cached --quiet || (
+            git commit -m '完成 MACD130 全158檔長歷史診斷 V6' &&
+            git push
+          )
