@@ -1,0 +1,76 @@
+name: MACD130 跨日期驗證 V12
+on:
+  push:
+    paths: ['.github/workflows/macd130_crossdate_validate_v12.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - run: pip install pandas numpy yfinance requests
+      - name: 動態抓凱基每日名單並跨日期驗證
+        run: |
+          python - <<'PY'
+          import json,re,requests
+          from pathlib import Path
+          import pandas as pd, yfinance as yf
+          URL='https://yachia2002.github.io/kd-macd-public-report/'
+          html=requests.get(URL,timeout=30).text
+          marker='const HISTORY = '
+          i=html.find(marker); assert i>=0,'HISTORY not found'
+          p=html.find('{',i); depth=0; q=None
+          for j in range(p,len(html)):
+            if html[j]=='{': depth+=1
+            elif html[j]=='}':
+              depth-=1
+              if depth==0:q=j+1;break
+          hist=json.loads(html[p:q])
+          dates=[d for d in ['2026-08-25','2026-08-26','2026-08-27'] if d in hist]
+          out=['=== MACD130 CROSS-DATE V12 ===',f'dates={dates}']
+          total=bad=0
+          for ds in dates:
+            rows=hist[ds]; target=pd.Timestamp(ds)
+            mism=[]
+            for n,r in enumerate(rows,1):
+              code=str(r.get('code','')).strip()
+              if not code: continue
+              expected=bool(r.get('macd130_positive'))
+              market=str(r.get('market',''))
+              ticker=code+('.TW' if '上市' in market else '.TWO')
+              h=yf.Ticker(ticker).history(period='max',auto_adjust=False,actions=True)
+              if h.empty: continue
+              if h.index.tz is not None:h.index=h.index.tz_localize(None)
+              h=h[h.index<=target]
+              if h.empty:continue
+              # KGI-style split handling discovered in V11:
+              # multiply all pre-split history by Yahoo Stock Splits ratio.
+              pclose=h.Close.copy()
+              splits=h.get('Stock Splits',pd.Series(0,index=h.index))
+              for dt,ratio in splits[splits!=0].items():
+                if pd.notna(ratio) and ratio>0:
+                  pclose.loc[pclose.index<dt]*=float(ratio)
+              # V10 discriminator: fast=12, slow=130, signal=6, signal>0
+              dif=pclose.ewm(span=12,adjust=False).mean()-pclose.ewm(span=130,adjust=False).mean()
+              sig=dif.ewm(span=6,adjust=False).mean()
+              got=bool(sig.iloc[-1]>0)
+              total+=1
+              if got!=expected:
+                bad+=1
+                if len(mism)<40:mism.append(f'{code}:{expected}->{got} sig={sig.iloc[-1]:.6f}')
+            out.append(f'{ds}: KGI_ROWS={len(rows)} mismatch={len(mism)} shown={"; ".join(mism)}')
+          out.append(f'TOTAL_TESTED={total} TOTAL_BAD={bad}')
+          Path('docs/data/macd130_crossdate_v12.txt').write_text('\n'.join(out),encoding='utf-8')
+          print('\n'.join(out))
+          PY
+      - name: 提交結果
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/data/macd130_crossdate_v12.txt
+          git diff --cached --quiet || (git commit -m '跨日期驗證 MACD130 V12' && git push)
