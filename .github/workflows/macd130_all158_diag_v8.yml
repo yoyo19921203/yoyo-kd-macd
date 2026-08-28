@@ -1,0 +1,93 @@
+name: MACD130 全158檔長歷史診斷 V8
+
+on:
+  push:
+    paths:
+      - '.github/workflows/macd130_all158_diag_v8.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install pandas numpy yfinance
+
+      - name: 直接使用既有158檔凱基參考 JSON
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          import pandas as pd
+          import yfinance as yf
+
+          ref=json.loads(Path('docs/data/kgi_formula_compare_20260826.json').read_text(encoding='utf-8'))
+          rows=ref['rows']
+          assert len(rows)==158, len(rows)
+          TARGET=pd.Timestamp('2026-08-26')
+          scores={}; fail=[]
+
+          for n,r in enumerate(rows,1):
+              code=str(r['code']); name=r.get('name','')
+              expected=bool(r['kgi_macd130'])
+              ticker=code+('.TW' if r.get('market')=='上市' else '.TWO')
+              try:
+                  h=yf.Ticker(ticker).history(period='max',auto_adjust=False,actions=False)
+              except Exception as e:
+                  fail.append([code,name,str(e)]); continue
+              if h.empty:
+                  fail.append([code,name,'empty']); continue
+              if h.index.tz is not None: h.index=h.index.tz_localize(None)
+              h=h[h.index<=TARGET]
+              if h.empty:
+                  fail.append([code,name,'no target history']); continue
+
+              prices={
+                'close':h['Close'],
+                'weighted':(2*h['Close']+h['High']+h['Low'])/4,
+                'typical':(h['High']+h['Low']+h['Close'])/3,
+              }
+              for pm,price in prices.items():
+                for fast in [6,12,26]:
+                  for signaln in [5,9]:
+                    for adj in [False,True]:
+                      dif=price.ewm(span=fast,adjust=adj).mean()-price.ewm(span=130,adjust=adj).mean()
+                      sig=dif.ewm(span=signaln,adjust=adj).mean()
+                      vals={'signal':sig.iloc[-1],'dif':dif.iloc[-1],'hist':dif.iloc[-1]-sig.iloc[-1]}
+                      for metric,val in vals.items():
+                        key=f'{pm}_f{fast}_s{signaln}_adj{adj}_{metric}'
+                        z=scores.setdefault(key,{'hit':0,'total':0,'bad':[]})
+                        z['total']+=1
+                        got=bool(val>0)
+                        if got==expected:z['hit']+=1
+                        elif len(z['bad'])<60:
+                          z['bad'].append([code,name,expected,got,round(float(val),8),str(h.index.min().date()),len(h)])
+              if n%20==0: print('processed',n,'/',len(rows))
+
+          rank=sorted(scores.items(),key=lambda kv:(kv[1]['total']-kv[1]['hit'],kv[0]))
+          out=['=== MACD130 全158檔長歷史診斷 V8 ===',f'REF={len(rows)}',f'FAIL={len(fail)}','','=== RANK TOP 40 ===']
+          for k,v in rank[:40]:
+              out.append(f"{k}: hit={v['hit']}/{v['total']} mismatch={v['total']-v['hit']}")
+          out += ['','=== TOP DETAIL ===']
+          for k,v in rank[:15]:
+              out += ['',f'[{k}] mismatch={v["total"]-v["hit"]}']
+              for bad in v['bad']: out.append('BAD '+' | '.join(map(str,bad)))
+          out += ['','=== FAIL ===']
+          for x in fail: out.append('FAIL '+' | '.join(map(str,x)))
+          Path('docs/data/macd130_all158_diag_v8.txt').write_text('\n'.join(out),encoding='utf-8')
+          print('\n'.join(out))
+          PY
+
+      - name: 提交結果
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/data/macd130_all158_diag_v8.txt
+          git diff --cached --quiet || (git commit -m '完成 MACD130 全158檔長歷史診斷 V8' && git push)
