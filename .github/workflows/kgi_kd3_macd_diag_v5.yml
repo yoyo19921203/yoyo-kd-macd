@@ -1,0 +1,374 @@
+name: 凱基 KD3 定案＋MACD 歷史診斷 V5
+
+on:
+  push:
+    paths:
+      - '.github/workflows/kgi_kd3_macd_diag_v5.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  validate-and-fix:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 安裝套件
+        run: |
+          pip install -r requirements.txt
+          pip install yfinance
+
+      - name: 驗證 KD3 精準規則並修正正式程式
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import re
+          import sys
+          import urllib.request
+          from pathlib import Path
+
+          import pandas as pd
+
+          sys.path.insert(0, os.path.join(os.getcwd(), "scripts"))
+          import fetch_and_compute as fc
+
+          DATE = "2026-08-26"
+          TARGET = pd.Timestamp(DATE)
+          SOURCE = "https://raw.githubusercontent.com/yachia2002/kd-macd-public-report/44f1cfbfb7eaa8a0d07200dd65aef26d837d4c80/index.html"
+
+          req = urllib.request.Request(SOURCE, headers={"User-Agent": "Mozilla/5.0"})
+          with urllib.request.urlopen(req, timeout=60) as r:
+              html = r.read().decode("utf-8", errors="replace")
+
+          marker = "const HISTORY = "
+          p = html.find(marker)
+          if p < 0:
+              raise SystemExit("找不到 const HISTORY")
+          p = html.find("{", p)
+
+          depth = 0
+          in_string = False
+          escaped = False
+          q = None
+          for i in range(p, len(html)):
+              ch = html[i]
+              if in_string:
+                  if escaped:
+                      escaped = False
+                  elif ch == "\\":
+                      escaped = True
+                  elif ch == '"':
+                      in_string = False
+                  continue
+              if ch == '"':
+                  in_string = True
+              elif ch == "{":
+                  depth += 1
+              elif ch == "}":
+                  depth -= 1
+                  if depth == 0:
+                      q = i + 1
+                      break
+
+          if q is None:
+              raise SystemExit("HISTORY JSON 沒有結束")
+
+          history = json.loads(html[p:q])
+          kgi_rows = history[DATE]
+
+          df, _ = fc.load_history()
+          df = df[df["date"] <= TARGET].copy()
+          df["code"] = df["code"].astype(str)
+
+          mismatches = []
+
+          for kr in kgi_rows:
+              code = str(kr["code"])
+              raw = df[df["code"] == code].sort_values("date").copy()
+              if raw.empty or raw["date"].iloc[-1] != TARGET:
+                  mismatches.append((code, kr.get("name"), "MISSING"))
+                  continue
+
+              g = fc.enrich_group(raw.reset_index(drop=True))
+              xs = g.index[g["kd_cross"].fillna(False)]
+              last_cross_idx = int(xs.max()) if len(xs) else None
+
+              kd3_exact = False
+              cross_age = None
+
+              if last_cross_idx is not None:
+                  cross_age = len(g) - 1 - last_cross_idx
+                  if 0 <= cross_age <= 2:
+                      start_idx = max(0, last_cross_idx - 1)
+                      gaps = pd.to_numeric(
+                          g["kd_gap"].iloc[start_idx:],
+                          errors="coerce",
+                      )
+                      if len(gaps) >= 2 and gaps.notna().all():
+                          kd3_exact = bool(
+                              (gaps.diff().dropna() > 0).all()
+                              and g["k"].iloc[-1] > g["d"].iloc[-1]
+                          )
+
+              expected = bool(kr.get("strong130"))
+
+              if expected != kd3_exact:
+                  mismatches.append(
+                      (
+                          code,
+                          kr.get("name"),
+                          kr.get("kd"),
+                          cross_age,
+                          expected,
+                          kd3_exact,
+                      )
+                  )
+
+          out = Path("docs/data/kd3_exact_validation_20260826.txt")
+          out.parent.mkdir(parents=True, exist_ok=True)
+
+          lines = [
+              f"TOTAL={len(kgi_rows)}",
+              f"MISMATCH={len(mismatches)}",
+              "",
+              "RULE:",
+              "1) 最近 KD 黃金交叉 cross_age 必須為 0~2（交叉日起共 3 個交易日）",
+              "2) 從交叉前一交易日至今天，K-D gap 每一日都必須嚴格增加",
+              "",
+              "MISMATCH_ROWS:",
+          ]
+          lines += [repr(x) for x in mismatches]
+          out.write_text("\n".join(lines), encoding="utf-8")
+
+          print("\n".join(lines[:30]))
+
+          if mismatches:
+              raise SystemExit(
+                  f"KD3 精準規則仍有 {len(mismatches)} 檔誤差，停止修改正式程式"
+              )
+
+          path = Path("scripts/fetch_and_compute.py")
+          text = path.read_text(encoding="utf-8")
+
+          pattern = re.compile(
+              r'        # 原 KD3：目前 K>D 且 K-D gap 比前一交易日擴大\n'
+              r'        kd3 = False\n'
+              r'        if len\(g\) >= 2 and pd\.notna\(r\["kd_gap"\]\) and pd\.notna\(g\["kd_gap"\]\.iloc\[-2\]\):\n'
+              r'            kd3 = bool\(r\["k"\] > r\["d"\] and r\["kd_gap"\] > g\["kd_gap"\]\.iloc\[-2\]\)\n'
+          )
+
+          replacement_lines = [
+              '        # KD3 強勢：近期 KD 黃金交叉後，K-D 差距持續擴大。',
+              '        # 對照凱基歷史報告：交叉日起最多保留 3 個交易日（cross_age 0~2），',
+              '        # 且從交叉前一交易日至今天，每一天的 K-D gap 都必須嚴格增加。',
+              '        kd3 = False',
+              '        if last_cross_idx is not None:',
+              '            kd3_cross_age = len(g) - 1 - last_cross_idx',
+              '            if 0 <= kd3_cross_age <= 2:',
+              '                kd3_start_idx = max(0, last_cross_idx - 1)',
+              '                kd3_gaps = pd.to_numeric(',
+              '                    g["kd_gap"].iloc[kd3_start_idx:],',
+              '                    errors="coerce",',
+              '                )',
+              '                if len(kd3_gaps) >= 2 and kd3_gaps.notna().all():',
+              '                    kd3 = bool(',
+              '                        (kd3_gaps.diff().dropna() > 0).all()',
+              '                        and r["k"] > r["d"]',
+              '                    )',
+              '',
+          ]
+          replacement = "\n".join(replacement_lines)
+
+          new_text, n = pattern.subn(replacement, text, count=1)
+          if n != 1:
+              raise SystemExit(
+                  f"找不到唯一原 KD3 程式片段（找到 {n} 次），為避免誤改已停止"
+              )
+
+          path.write_text(new_text, encoding="utf-8")
+          print("✅ KD3 158 檔 0 誤差，已修正 scripts/fetch_and_compute.py")
+          PY
+
+      - name: MACD 六檔長歷史／還原價診斷
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          import pandas as pd
+          import yfinance as yf
+
+          TARGET = pd.Timestamp("2026-08-26")
+          START_LONG = "2023-01-01"
+          START_SHORT = pd.Timestamp("2025-12-10")
+
+          targets = [
+              ("1598", "岱宇", "1598.TW", False),
+              ("3219", "倚強科", "3219.TWO", True),
+              ("3324", "雙鴻", "3324.TWO", True),
+              ("5291", "邑昇", "5291.TWO", True),
+              ("6147", "頎邦", "6147.TWO", True),
+              ("7712", "博盛半導體", "7712.TWO", True),
+          ]
+
+          def macd_signal(df, price_mode="weighted", ema_adjust=False):
+              if price_mode == "weighted":
+                  price = (df["Close"] * 2 + df["High"] + df["Low"]) / 4
+              else:
+                  price = df["Close"]
+
+              fast = price.ewm(span=12, adjust=ema_adjust).mean()
+              slow = price.ewm(span=130, adjust=ema_adjust).mean()
+              dif = fast - slow
+              sig = dif.ewm(span=9, adjust=ema_adjust).mean()
+              return dif, sig
+
+          lines = [
+              "KGI MACD130 長歷史／還原價診斷",
+              "TARGET=2026-08-26",
+              "",
+          ]
+
+          variant_hits = {}
+
+          for code, name, ticker, expected in targets:
+              lines += [
+                  "",
+                  f"### {code} {name} expected={expected} ticker={ticker}",
+              ]
+              result_signs = {}
+
+              for auto_adjust in (False, True):
+                  label_adj = "ADJ" if auto_adjust else "RAW"
+
+                  try:
+                      h = yf.Ticker(ticker).history(
+                          start=START_LONG,
+                          end="2026-08-27",
+                          auto_adjust=auto_adjust,
+                          actions=False,
+                      )
+                  except Exception as e:
+                      lines.append(f"{label_adj}: DOWNLOAD_ERROR {e!r}")
+                      continue
+
+                  if h.empty:
+                      lines.append(f"{label_adj}: EMPTY")
+                      continue
+
+                  h = h.copy()
+                  if getattr(h.index, "tz", None) is not None:
+                      h.index = h.index.tz_localize(None)
+
+                  h = h[h.index <= TARGET]
+
+                  if h.empty or TARGET not in h.index:
+                      lines.append(
+                          f"{label_adj}: TARGET_NOT_FOUND rows={len(h)}"
+                      )
+                      continue
+
+                  day = h.loc[TARGET]
+                  if isinstance(day, pd.DataFrame):
+                      day = day.iloc[-1]
+
+                  lines.append(
+                      f"{label_adj} rows={len(h)} "
+                      f"first={h.index.min().date()} "
+                      f"close={float(day['Close']):.6f} "
+                      f"volume={float(day['Volume']):.0f}"
+                  )
+
+                  for history_mode in ("LONG", "SHORT"):
+                      x = (
+                          h
+                          if history_mode == "LONG"
+                          else h[h.index >= START_SHORT]
+                      )
+
+                      if len(x) < 20:
+                          continue
+
+                      for price_mode in ("weighted", "close"):
+                          for ema_adjust in (False, True):
+                              dif, sig = macd_signal(
+                                  x,
+                                  price_mode=price_mode,
+                                  ema_adjust=ema_adjust,
+                              )
+
+                              key = (
+                                  f"{label_adj}_{history_mode}_"
+                                  f"{price_mode}_"
+                                  f"{'adjustT' if ema_adjust else 'adjustF'}"
+                              )
+
+                              val = float(sig.iloc[-1])
+                              sign = val > 0
+                              result_signs[key] = sign
+
+                              variant_hits.setdefault(key, [0, 0])
+                              variant_hits[key][1] += 1
+                              if sign == expected:
+                                  variant_hits[key][0] += 1
+
+                              lines.append(
+                                  f"{key}: signal={val:.8f} "
+                                  f"dif={float(dif.iloc[-1]):.8f} "
+                                  f"sign={sign} match={sign == expected}"
+                              )
+
+              if result_signs:
+                  perfect_here = [
+                      k
+                      for k, v in result_signs.items()
+                      if v == expected
+                  ]
+                  lines.append(
+                      "MATCH_VARIANTS=" + ",".join(perfect_here)
+                  )
+
+          lines += ["", "### VARIANT SCORE"]
+
+          for key, (hit, total) in sorted(
+              variant_hits.items(),
+              key=lambda kv: (-kv[1][0], kv[0]),
+          ):
+              lines.append(f"{key}: {hit}/{total}")
+
+          out = Path("docs/data/macd_long_history_diag_20260826.txt")
+          out.parent.mkdir(parents=True, exist_ok=True)
+          out.write_text("\n".join(lines), encoding="utf-8")
+
+          print("\n".join(lines[-50:]))
+          PY
+
+      - name: 用修正後 KD3 重算 0826 與 0827
+        run: |
+          python scripts/fetch_and_compute.py --report-date 20260826
+          python scripts/fetch_and_compute.py --report-date 20260827
+
+      - name: 提交 KD3 修正與診斷結果
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+          git add scripts/fetch_and_compute.py
+          git add docs/data/kd3_exact_validation_20260826.txt
+          git add docs/data/macd_long_history_diag_20260826.txt
+          git add docs/data/20260826.json
+          git add docs/data/20260827.json
+
+          if git diff --cached --quiet; then
+            echo 'no changes'
+          else
+            git commit -m '定案 KD3 規則並診斷 MACD130 長歷史'
+            git push
+          fi
