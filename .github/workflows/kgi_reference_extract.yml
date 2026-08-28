@@ -1,0 +1,84 @@
+name: 凱基 0826 參考資料擷取診斷
+
+on:
+  push:
+    paths:
+      - '.github/workflows/kgi_reference_extract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 下載並擷取凱基 2026-08-26 歷史報告
+        run: |
+          python - <<'PY'
+          import re
+          import urllib.request
+          from pathlib import Path
+
+          url = 'https://raw.githubusercontent.com/yachia2002/kd-macd-public-report/44f1cfbfb7eaa8a0d07200dd65aef26d837d4c80/index.html'
+          req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+          with urllib.request.urlopen(req, timeout=60) as r:
+              text = r.read().decode('utf-8', errors='replace')
+
+          keys = [
+              'KD3', 'kd3', 'KD3 強勢', 'KD3強勢', '3324',
+              'quick-list', 'quickList', 'quick-list-panel',
+              'macd130', 'MACD130', '20260826', '2026-08-26',
+              'strong'
+          ]
+
+          parts = [f'HTML_LENGTH={len(text)}', f'SOURCE={url}']
+          for key in keys:
+              hits = list(re.finditer(re.escape(key), text, flags=re.I))
+              parts.append(f'\n##### KEY {key!r} COUNT={len(hits)} #####')
+              for i, m in enumerate(hits[:12], 1):
+                  lo = max(0, m.start() - 3500)
+                  hi = min(len(text), m.end() + 6500)
+                  snippet = text[lo:hi]
+                  parts.append(f'\n--- {key} HIT {i} POS={m.start()} ---\n{snippet}')
+
+          # 另外列出含有 KD / quick / strong / MACD 的 JS 變數名稱，方便辨識資料結構。
+          var_names = sorted(set(re.findall(r'\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=', text)))
+          interesting = [
+              v for v in var_names
+              if re.search(r'kd|quick|strong|macd|report|data|stock|pick|candidate', v, re.I)
+          ]
+          parts.append('\n##### INTERESTING_JS_VARS #####\n' + '\n'.join(interesting))
+
+          # 針對 3324 周邊找出所有四碼股票代號，保留作交叉檢查。
+          code_contexts = []
+          for m in list(re.finditer(r'(?<!\d)3324(?!\d)', text))[:20]:
+              lo = max(0, m.start() - 12000)
+              hi = min(len(text), m.end() + 12000)
+              codes = re.findall(r'(?<!\d)(\d{4})(?!\d)', text[lo:hi])
+              code_contexts.append(','.join(dict.fromkeys(codes)))
+          parts.append('\n##### CODES_AROUND_3324 #####\n' + '\n'.join(code_contexts))
+
+          out = Path('docs/data/kgi_reference_20260826_extract.txt')
+          out.parent.mkdir(parents=True, exist_ok=True)
+          out.write_text('\n'.join(parts), encoding='utf-8')
+
+          print('downloaded bytes:', len(text.encode('utf-8')))
+          print('output:', out, 'bytes:', out.stat().st_size)
+          for key in ['KD3', '3324', 'quick-list', '2026-08-26', 'macd130']:
+              print(key, len(list(re.finditer(re.escape(key), text, flags=re.I))))
+          PY
+
+      - name: 提交擷取結果
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/data/kgi_reference_20260826_extract.txt
+          if git diff --cached --quiet; then
+            echo 'no changes'
+          else
+            git commit -m '產生凱基 0826 KD3 參考擷取結果'
+            git push
+          fi
