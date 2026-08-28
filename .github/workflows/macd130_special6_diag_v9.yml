@@ -1,0 +1,88 @@
+name: MACD130 特殊6檔深度診斷 V9
+
+on:
+  push:
+    paths:
+      - '.github/workflows/macd130_special6_diag_v9.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install pandas numpy yfinance
+
+      - name: 特殊6檔價格口徑與公司行動診斷
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          import pandas as pd
+          import yfinance as yf
+
+          target=pd.Timestamp('2026-08-26')
+          codes=['1720','2948','3152','3163','5291','8932']
+          ref=json.loads(Path('docs/data/kgi_formula_compare_20260826.json').read_text())
+          rr={r['code']:r for r in ref['rows']}
+          out=['=== MACD130 SPECIAL6 V9 ===']
+
+          def ema_sma_seed(s,n):
+              s=s.dropna().astype(float)
+              if len(s)<n: return pd.Series(index=s.index,dtype=float)
+              a=2/(n+1)
+              vals=[float('nan')]*(n-1)+[float(s.iloc[:n].mean())]
+              for x in s.iloc[n:]:
+                  vals.append(a*float(x)+(1-a)*vals[-1])
+              return pd.Series(vals,index=s.index)
+
+          for code in codes:
+              r=rr[code]; market=r['market']; expected=bool(r['kgi_macd130'])
+              ticker=code+('.TW' if market=='上市' else '.TWO')
+              t=yf.Ticker(ticker)
+              raw=t.history(period='max',auto_adjust=False,actions=True)
+              adj=t.history(period='max',auto_adjust=True,actions=True)
+              for h in (raw,adj):
+                  if h.index.tz is not None:h.index=h.index.tz_localize(None)
+              raw=raw[raw.index<=target]; adj=adj[adj.index<=target]
+              out += ['',f'### {code} {r["name"]} expected={expected} rows={len(raw)} start={raw.index.min().date()}']
+              if 'Dividends' in raw:
+                  acts=raw[(raw.get('Dividends',0)!=0)|(raw.get('Stock Splits',0)!=0)]
+                  out.append('ACTIONS_LAST20='+str([(str(i.date()),float(x.get("Dividends",0)),float(x.get("Stock Splits",0))) for i,x in acts.tail(20).iterrows()]))
+              variants={}
+              for label,h in [('RAW',raw),('ADJ',adj)]:
+                for pm,price in {
+                    'C':h.Close,
+                    'W':(2*h.Close+h.High+h.Low)/4,
+                    'T':(h.High+h.Low+h.Close)/3,
+                    'OHL4':(h.Open+h.High+h.Low+h.Close)/4,
+                    'HL2':(h.High+h.Low)/2,
+                }.items():
+                  dif=price.ewm(span=12,adjust=False).mean()-price.ewm(span=130,adjust=False).mean()
+                  sig=dif.ewm(span=9,adjust=False).mean()
+                  variants[f'{label}_{pm}_pandas']=(float(sig.iloc[-1]),float(dif.iloc[-1]))
+                  e12=ema_sma_seed(price,12); e130=ema_sma_seed(price,130)
+                  d=(e12-e130).dropna(); s9=ema_sma_seed(d,9)
+                  if len(s9.dropna()):
+                    variants[f'{label}_{pm}_smaseed']=(float(s9.dropna().iloc[-1]),float(d.iloc[-1]))
+              for k,(sig,dif) in variants.items():
+                  out.append(f'{k}: signal={sig:.8f} dif={dif:.8f} sign={sig>0} match={(sig>0)==expected}')
+              out.append('LAST15_RAW='+str([(str(i.date()),round(float(x.Close),4)) for i,x in raw.tail(15).iterrows()]))
+
+          Path('docs/data/macd130_special6_diag_v9.txt').write_text('\n'.join(out),encoding='utf-8')
+          print('\n'.join(out))
+          PY
+
+      - name: 提交結果
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/data/macd130_special6_diag_v9.txt
+          git diff --cached --quiet || (git commit -m '診斷 MACD130 特殊6檔 V9' && git push)
