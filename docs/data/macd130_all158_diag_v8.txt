@@ -1,0 +1,170 @@
+=== MACD130 全158檔長歷史診斷 V8 ===
+REF=158
+FAIL=0
+
+=== RANK TOP 40 ===
+close_f12_s5_adjFalse_signal: hit=152/158 mismatch=6
+close_f12_s5_adjTrue_signal: hit=152/158 mismatch=6
+close_f12_s9_adjFalse_signal: hit=152/158 mismatch=6
+close_f12_s9_adjTrue_signal: hit=152/158 mismatch=6
+typical_f12_s5_adjFalse_signal: hit=152/158 mismatch=6
+typical_f12_s5_adjTrue_signal: hit=152/158 mismatch=6
+typical_f12_s9_adjFalse_signal: hit=152/158 mismatch=6
+typical_f12_s9_adjTrue_signal: hit=152/158 mismatch=6
+typical_f6_s9_adjFalse_signal: hit=152/158 mismatch=6
+typical_f6_s9_adjTrue_signal: hit=152/158 mismatch=6
+weighted_f12_s5_adjFalse_signal: hit=152/158 mismatch=6
+weighted_f12_s5_adjTrue_signal: hit=152/158 mismatch=6
+weighted_f12_s9_adjFalse_signal: hit=152/158 mismatch=6
+weighted_f12_s9_adjTrue_signal: hit=152/158 mismatch=6
+weighted_f6_s9_adjFalse_signal: hit=151/158 mismatch=7
+weighted_f6_s9_adjTrue_signal: hit=151/158 mismatch=7
+close_f26_s5_adjFalse_dif: hit=150/158 mismatch=8
+close_f26_s5_adjTrue_dif: hit=150/158 mismatch=8
+close_f26_s9_adjFalse_dif: hit=150/158 mismatch=8
+close_f26_s9_adjTrue_dif: hit=150/158 mismatch=8
+close_f6_s9_adjFalse_signal: hit=149/158 mismatch=9
+close_f6_s9_adjTrue_signal: hit=149/158 mismatch=9
+typical_f26_s5_adjFalse_dif: hit=149/158 mismatch=9
+typical_f26_s5_adjTrue_dif: hit=149/158 mismatch=9
+typical_f26_s9_adjFalse_dif: hit=149/158 mismatch=9
+typical_f26_s9_adjTrue_dif: hit=149/158 mismatch=9
+weighted_f26_s5_adjFalse_dif: hit=149/158 mismatch=9
+weighted_f26_s5_adjTrue_dif: hit=149/158 mismatch=9
+weighted_f26_s9_adjFalse_dif: hit=149/158 mismatch=9
+weighted_f26_s9_adjTrue_dif: hit=149/158 mismatch=9
+typical_f12_s5_adjFalse_dif: hit=148/158 mismatch=10
+typical_f12_s5_adjTrue_dif: hit=148/158 mismatch=10
+typical_f12_s9_adjFalse_dif: hit=148/158 mismatch=10
+typical_f12_s9_adjTrue_dif: hit=148/158 mismatch=10
+typical_f6_s5_adjFalse_signal: hit=148/158 mismatch=10
+typical_f6_s5_adjTrue_signal: hit=148/158 mismatch=10
+weighted_f12_s5_adjFalse_dif: hit=148/158 mismatch=10
+weighted_f12_s5_adjTrue_dif: hit=148/158 mismatch=10
+weighted_f12_s9_adjFalse_dif: hit=148/158 mismatch=10
+weighted_f12_s9_adjTrue_dif: hit=148/158 mismatch=10
+
+=== TOP DETAIL ===
+
+[close_f12_s5_adjFalse_signal] mismatch=6
+BAD 1711 | 永光 | False | True | 0.20964077 | 2000-01-04 | 6626
+BAD 1720 | 生達 | False | True | 0.11618754 | 2000-01-04 | 6626
+BAD 2948 | 寶陞 | False | True | 0.46677993 | 2020-12-10 | 1385
+BAD 3152 | 璟德 | True | False | -34.3890969 | 2008-03-24 | 4518
+BAD 3163 | 波若威 | False | True | 46.44489641 | 2012-06-20 | 3462
+BAD 8932 | 智通* | False | True | 5.62479504 | 2007-12-31 | 4570
+
+[close_f12_s5_adjTrue_signal] mismatch=6
+BAD 1711 | 永光 | False | True | 0.20964077 | 2000-01-04 | 6626
+BAD 1720 | 生達 | False | True | 0.11618754 | 2000-01-04 | 6626
+BAD 2948 | 寶陞 | False | True | 0.46677993 | 2020-12-10 | 1385
+BAD 3152 | 璟德 | True | False | -34.3890969 | 2008-03-24 | 4518
+BAD 3163 | 波若威 | False | True | 46.44489641 | 2012-06-20 | 3462
+BAD 8932 | 智通* | False | True | 5.62479504 | 2007-12-31 | 4570
+
+[close_f12_s9_adjFalse_signal] mismatch=6
+BAD 1720 | 生達 | False | True | 0.11328971 | 2000-01-04 | 6626
+BAD 2948 | 寶陞 | False | True | 0.32879654 | 2020-12-10 | 1385
+BAD 3152 | 璟德 | True | False | -37.8644355 | 2008-03-24 | 4518
+BAD 3163 | 波若威 | False | True | 34.33819033 | 2012-06-20 | 3462
+BAD 5291 | 邑昇 | True | False | -0.35310783 | 2013-08-30 | 3166
+BAD 8932 | 智通* | False | True | 5.11825672 | 2007-12-31 | 4570
+
+[close_f12_s9_adjTrue_signal] mismatch=6
+BAD 1720 | 生達 | False | True | 0.11328971 | 2000-01-04 | 6626
+BAD 2948 | 寶陞 | False | True | 0.32879654 | 2020-12-10 | 1385
+BAD 3152 | 璟德 | True | False | -37.8644355 | 2008-03-24 | 4518
+BAD 3163 | 波若威 | False | True | 34.33819033 | 2012-06-20 | 3462
+BAD 5291 | 邑昇 | True | False | -0.35310783 | 2013-08-30 | 3166
+BAD 8932 | 智通* | False | True | 5.11825672 | 2007-12-31 | 4570
+
+[typical_f12_s5_adjFalse_signal] mismatch=6
+BAD 1711 | 永光 | False | True | 0.06406009 | 2000-01-04 | 6626
+BAD 1720 | 生達 | False | True | 0.10084753 | 2000-01-04 | 6626
+BAD 2948 | 寶陞 | False | True | 0.42204283 | 2020-12-10 | 1385
+BAD 3152 | 璟德 | True | False | -35.51672388 | 2008-03-24 | 4518
+BAD 3163 | 波若威 | False | True | 43.45684588 | 2012-06-20 | 3462
+BAD 8932 | 智通* | False | True | 5.48651502 | 2007-12-31 | 4570
+
+[typical_f12_s5_adjTrue_signal] mismatch=6
+BAD 1711 | 永光 | False | True | 0.06406009 | 2000-01-04 | 6626
+BAD 1720 | 生達 | False | True | 0.10084753 | 2000-01-04 | 6626
+BAD 2948 | 寶陞 | False | True | 0.42204283 | 2020-12-10 | 1385
+BAD 3152 | 璟德 | True | False | -35.51672388 | 2008-03-24 | 4518
+BAD 3163 | 波若威 | False | True | 43.45684588 | 2012-06-20 | 3462
+BAD 8932 | 智通* | False | True | 5.48651502 | 2007-12-31 | 4570
+
+[typical_f12_s9_adjFalse_signal] mismatch=6
+BAD 1720 | 生達 | False | True | 0.10491949 | 2000-01-04 | 6626
+BAD 2948 | 寶陞 | False | True | 0.28993477 | 2020-12-10 | 1385
+BAD 3152 | 璟德 | True | False | -38.70366084 | 2008-03-24 | 4518
+BAD 3163 | 波若威 | False | True | 32.37077721 | 2012-06-20 | 3462
+BAD 5291 | 邑昇 | True | False | -0.34539704 | 2013-08-30 | 3166
+BAD 8932 | 智通* | False | True | 5.00381877 | 2007-12-31 | 4570
+
+[typical_f12_s9_adjTrue_signal] mismatch=6
+BAD 1720 | 生達 | False | True | 0.10491949 | 2000-01-04 | 6626
+BAD 2948 | 寶陞 | False | True | 0.28993477 | 2020-12-10 | 1385
+BAD 3152 | 璟德 | True | False | -38.70366084 | 2008-03-24 | 4518
+BAD 3163 | 波若威 | False | True | 32.37077721 | 2012-06-20 | 3462
+BAD 5291 | 邑昇 | True | False | -0.34539704 | 2013-08-30 | 3166
+BAD 8932 | 智通* | False | True | 5.00381877 | 2007-12-31 | 4570
+
+[typical_f6_s9_adjFalse_signal] mismatch=6
+BAD 1711 | 永光 | False | True | 0.31598514 | 2000-01-04 | 6626
+BAD 1720 | 生達 | False | True | 0.08524341 | 2000-01-04 | 6626
+BAD 2948 | 寶陞 | False | True | 0.5068593 | 2020-12-10 | 1385
+BAD 3152 | 璟德 | True | False | -36.1529922 | 2008-03-24 | 4518
+BAD 3163 | 波若威 | False | True | 51.47959558 | 2012-06-20 | 3462
+BAD 8932 | 智通* | False | True | 5.956688 | 2007-12-31 | 4570
+
+[typical_f6_s9_adjTrue_signal] mismatch=6
+BAD 1711 | 永光 | False | True | 0.31598514 | 2000-01-04 | 6626
+BAD 1720 | 生達 | False | True | 0.08524341 | 2000-01-04 | 6626
+BAD 2948 | 寶陞 | False | True | 0.5068593 | 2020-12-10 | 1385
+BAD 3152 | 璟德 | True | False | -36.1529922 | 2008-03-24 | 4518
+BAD 3163 | 波若威 | False | True | 51.47959558 | 2012-06-20 | 3462
+BAD 8932 | 智通* | False | True | 5.956688 | 2007-12-31 | 4570
+
+[weighted_f12_s5_adjFalse_signal] mismatch=6
+BAD 1711 | 永光 | False | True | 0.10045526 | 2000-01-04 | 6626
+BAD 1720 | 生達 | False | True | 0.10468253 | 2000-01-04 | 6626
+BAD 2948 | 寶陞 | False | True | 0.4332271 | 2020-12-10 | 1385
+BAD 3152 | 璟德 | True | False | -35.23481714 | 2008-03-24 | 4518
+BAD 3163 | 波若威 | False | True | 44.20385851 | 2012-06-20 | 3462
+BAD 8932 | 智通* | False | True | 5.52108503 | 2007-12-31 | 4570
+
+[weighted_f12_s5_adjTrue_signal] mismatch=6
+BAD 1711 | 永光 | False | True | 0.10045526 | 2000-01-04 | 6626
+BAD 1720 | 生達 | False | True | 0.10468253 | 2000-01-04 | 6626
+BAD 2948 | 寶陞 | False | True | 0.4332271 | 2020-12-10 | 1385
+BAD 3152 | 璟德 | True | False | -35.23481714 | 2008-03-24 | 4518
+BAD 3163 | 波若威 | False | True | 44.20385851 | 2012-06-20 | 3462
+BAD 8932 | 智通* | False | True | 5.52108503 | 2007-12-31 | 4570
+
+[weighted_f12_s9_adjFalse_signal] mismatch=6
+BAD 1720 | 生達 | False | True | 0.10701205 | 2000-01-04 | 6626
+BAD 2948 | 寶陞 | False | True | 0.29965021 | 2020-12-10 | 1385
+BAD 3152 | 璟德 | True | False | -38.4938545 | 2008-03-24 | 4518
+BAD 3163 | 波若威 | False | True | 32.86263049 | 2012-06-20 | 3462
+BAD 5291 | 邑昇 | True | False | -0.34732474 | 2013-08-30 | 3166
+BAD 8932 | 智通* | False | True | 5.03242826 | 2007-12-31 | 4570
+
+[weighted_f12_s9_adjTrue_signal] mismatch=6
+BAD 1720 | 生達 | False | True | 0.10701205 | 2000-01-04 | 6626
+BAD 2948 | 寶陞 | False | True | 0.29965021 | 2020-12-10 | 1385
+BAD 3152 | 璟德 | True | False | -38.4938545 | 2008-03-24 | 4518
+BAD 3163 | 波若威 | False | True | 32.86263049 | 2012-06-20 | 3462
+BAD 5291 | 邑昇 | True | False | -0.34732474 | 2013-08-30 | 3166
+BAD 8932 | 智通* | False | True | 5.03242826 | 2007-12-31 | 4570
+
+[weighted_f6_s9_adjFalse_signal] mismatch=7
+BAD 1711 | 永光 | False | True | 0.35565 | 2000-01-04 | 6626
+BAD 1720 | 生達 | False | True | 0.0901643 | 2000-01-04 | 6626
+BAD 2009 | 第一銅 | False | True | 0.00175791 | 2000-01-04 | 6626
+BAD 2948 | 寶陞 | False | True | 0.51958165 | 2020-12-10 | 1385
+BAD 3152 | 璟德 | True | False | -35.82373978 | 2008-03-24 | 4518
+BAD 3163 | 波若威 | False | True | 52.39106489 | 2012-06-20 | 3462
+BAD 8932 | 智通* | False | True | 5.99518633 | 2007-12-31 | 4570
+
+=== FAIL ===
