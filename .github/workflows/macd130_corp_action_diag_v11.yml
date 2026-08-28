@@ -1,0 +1,72 @@
+name: MACD130 公司行動還原 V11
+on:
+  push:
+    paths: ['.github/workflows/macd130_corp_action_diag_v11.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - run: pip install pandas numpy yfinance
+      - name: 破解最後5檔公司行動價格口徑
+        run: |
+          python - <<'PY'
+          import json, numpy as np, pandas as pd, yfinance as yf
+          from pathlib import Path
+          ref=json.loads(Path('docs/data/kgi_formula_compare_20260826.json').read_text())
+          rr={str(x['code']):x for x in ref['rows']}
+          codes=['1720','2948','3152','3163','8932']; target=pd.Timestamp('2026-08-26')
+          out=['=== V11 LAST5 CORPORATE ACTION DIAG ===']
+          def macd(p,fast=12,sig=6):
+            d=p.ewm(span=fast,adjust=False).mean()-p.ewm(span=130,adjust=False).mean()
+            s=d.ewm(span=sig,adjust=False).mean()
+            return float(d.iloc[-1]),float(s.iloc[-1])
+          for code in codes:
+            r=rr[code]; ticker=code+('.TW' if r['market']=='上市' else '.TWO')
+            raw=yf.Ticker(ticker).history(period='max',auto_adjust=False,actions=True)
+            adj=yf.Ticker(ticker).history(period='max',auto_adjust=True,actions=True)
+            for h in (raw,adj):
+              if h.index.tz is not None:h.index=h.index.tz_localize(None)
+            raw=raw[raw.index<=target]; adj=adj[adj.index<=target]
+            expected=bool(r['kgi_macd130'])
+            out += ['',f'[{code} {r["name"]}] expected={expected} rows={len(raw)} start={raw.index.min().date()}']
+            acts=raw[(raw.get('Stock Splits',0)!=0)|(raw.get('Dividends',0)!=0)]
+            out.append('ACTIONS:')
+            for dt,row in acts.tail(30).iterrows():
+              out.append(f' {dt.date()} div={row.get("Dividends",0)} split={row.get("Stock Splits",0)} close={row.Close}')
+            # Compare Yahoo raw/adjusted and manual split conventions.
+            variants={'RAW':raw.Close.copy(),'ADJ':adj.Close.copy()}
+            splits=raw.get('Stock Splits',pd.Series(0,index=raw.index))
+            # Four common historical conventions: multiply/divide pre-event by ratio,
+            # and cumulative factor including/excluding event day.
+            for mode in ['pre_div','pre_mul','post_div','post_mul']:
+              p=raw.Close.copy()
+              for dt,ratio in splits[splits!=0].items():
+                if not np.isfinite(ratio) or ratio<=0: continue
+                if mode=='pre_div': p.loc[p.index<dt]/=ratio
+                elif mode=='pre_mul': p.loc[p.index<dt]*=ratio
+                elif mode=='post_div': p.loc[p.index>=dt]/=ratio
+                elif mode=='post_mul': p.loc[p.index>=dt]*=ratio
+              variants[mode.upper()]=p
+            for name,p in variants.items():
+              d,s=macd(p)
+              out.append(f'{name}: dif={d:.8f} signal={s:.8f} sign={s>0} match={(s>0)==expected}')
+            out.append('LAST20 RAW/ADJ:')
+            for dt in raw.index[-20:]:
+              av=adj.Close.loc[dt] if dt in adj.index else np.nan
+              out.append(f' {dt.date()} raw={raw.Close.loc[dt]:.6f} adj={av:.6f}')
+          Path('docs/data/macd130_corp_action_diag_v11.txt').write_text('\n'.join(out),encoding='utf-8')
+          print('\n'.join(out))
+          PY
+      - name: 提交結果
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/data/macd130_corp_action_diag_v11.txt
+          git diff --cached --quiet || (git commit -m '破解 MACD130 公司行動價格口徑 V11' && git push)
