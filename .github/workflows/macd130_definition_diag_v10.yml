@@ -1,0 +1,72 @@
+name: MACD130 定義破解 V10
+
+on:
+  push:
+    paths:
+      - '.github/workflows/macd130_definition_diag_v10.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install pandas numpy yfinance
+
+      - name: 全158檔掃描 MACD130 定義
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          import pandas as pd, yfinance as yf
+
+          ref=json.loads(Path('docs/data/kgi_formula_compare_20260826.json').read_text())
+          rows=ref['rows']; target=pd.Timestamp('2026-08-26')
+          scores={}
+          for n,r in enumerate(rows,1):
+            code=str(r['code']); expected=bool(r['kgi_macd130'])
+            ticker=code+('.TW' if r['market']=='上市' else '.TWO')
+            h=yf.Ticker(ticker).history(period='max',auto_adjust=False,actions=False)
+            if h.empty: continue
+            if h.index.tz is not None:h.index=h.index.tz_localize(None)
+            h=h[h.index<=target]
+            price=(2*h.Close+h.High+h.Low)/4
+            for fast in range(2,31):
+              dif=price.ewm(span=fast,adjust=False).mean()-price.ewm(span=130,adjust=False).mean()
+              for sig_n in range(2,16):
+                sig=dif.ewm(span=sig_n,adjust=False).mean()
+                vals={
+                  'DIF':dif.iloc[-1],
+                  'SIGNAL':sig.iloc[-1],
+                  'HIST':dif.iloc[-1]-sig.iloc[-1],
+                  'DIF_AND_SIGNAL': 1 if (dif.iloc[-1]>0 and sig.iloc[-1]>0) else -1,
+                }
+                for metric,val in vals.items():
+                  k=f'f{fast}_s{sig_n}_{metric}'
+                  z=scores.setdefault(k,[0,0,[]])
+                  z[1]+=1; got=bool(val>0)
+                  if got==expected:z[0]+=1
+                  elif len(z[2])<30:z[2].append(code)
+            if n%20==0: print('processed',n)
+
+          rank=sorted(scores.items(),key=lambda kv:(kv[1][1]-kv[1][0],kv[0]))
+          out=['=== MACD130 DEFINITION V10 ===']
+          for k,v in rank[:80]:
+            out.append(f'{k}: hit={v[0]}/{v[1]} mismatch={v[1]-v[0]} bad={",".join(v[2])}')
+          Path('docs/data/macd130_definition_diag_v10.txt').write_text('\n'.join(out),encoding='utf-8')
+          print('\n'.join(out))
+          PY
+
+      - name: 提交結果
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/data/macd130_definition_diag_v10.txt
+          git diff --cached --quiet || (git commit -m '掃描 MACD130 真正定義 V10' && git push)
