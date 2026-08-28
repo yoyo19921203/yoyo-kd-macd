@@ -1,0 +1,9 @@
+=== MACD130 CROSS-DATE V13 ===
+dates=['2026-08-25', '2026-08-26', '2026-08-27']
+2026-08-25: rows=129 tested=129 KGI_TRUE=33 BAD=2
+  8433:False->True:0.03924; 8928:False->True:0.24204
+2026-08-26: rows=158 tested=158 KGI_TRUE=37 BAD=1
+  1711:False->True:0.04444
+2026-08-27: rows=332 tested=332 KGI_TRUE=90 BAD=10
+  1598:False->True:0.00964; 2009:False->True:0.06363; 2313:False->True:1.31701; 5871:False->True:0.03101; 3105:True->False:-0.93841; 3624:True->False:-0.27488; 3680:True->False:-0.83807; 4908:False->True:0.11265; 6517:False->True:0.66832; 8390:True->False:-0.43079
+GRAND tested=619 bad=13
