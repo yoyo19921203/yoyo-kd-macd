@@ -1,0 +1,165 @@
+SOURCE=https://raw.githubusercontent.com/yachia2002/kd-macd-public-report/44f1cfbfb7eaa8a0d07200dd65aef26d837d4c80/index.html
+DATE=2026-08-26
+TOTAL=158
+
+COUNTS
+all=158
+volume_true=89
+strong_true=77
+macd130_true=37
+signal130_true=158
+volume_and_strong=38
+strong_and_macd130=16
+volume_and_macd130=24
+volume_strong_macd130=8
+volume_strong_signal130=38
+
+### volume_strong_macd130 (8)
+1563 巧新 | market=上市 volume=True strong=True strong130=True signal130=True macd130=True vol20=1465 rs5=5.71 rs20=6.19 close=66.0
+2491 吉祥全 | market=上市 volume=True strong=True strong130=True signal130=True macd130=True vol20=1115 rs5=19.79 rs20=83.62 close=46.65
+3219 倚強科 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=True vol20=319 rs5=8.3 rs20=19.19 close=76.9
+3324 雙鴻 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=True vol20=2809 rs5=5.87 rs20=7.35 close=1075.0
+4979 華星光 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=True vol20=9221 rs5=10.22 rs20=37.15 close=598.0
+6617 共信-KY | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=True vol20=892 rs5=30.58 rs20=42.59 close=127.0
+7712 博盛半導體 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=True vol20=354 rs5=8.63 rs20=13.72 close=160.5
+8928 鉅明 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=True vol20=32 rs5=6.13 rs20=-6.74 close=24.95
+
+### volume_strong_signal130 (38)
+1219 福壽 | market=上市 volume=True strong=True strong130=True signal130=True macd130=False vol20=621 rs5=5.69 rs20=-12.32 close=11.9
+1563 巧新 | market=上市 volume=True strong=True strong130=True signal130=True macd130=True vol20=1465 rs5=5.71 rs20=6.19 close=66.0
+1711 永光 | market=上市 volume=True strong=True strong130=True signal130=True macd130=False vol20=4931 rs5=13.98 rs20=26.07 close=44.2
+1725 元禎 | market=上市 volume=True strong=True strong130=True signal130=True macd130=False vol20=40 rs5=1.3 rs20=-5.47 close=31.5
+1805 寶徠 | market=上市 volume=True strong=True strong130=True signal130=True macd130=False vol20=76 rs5=-1.01 rs20=-10.11 close=10.3
+2009 第一銅 | market=上市 volume=True strong=True strong130=True signal130=True macd130=False vol20=2905 rs5=8.56 rs20=8.78 close=43.2
+2491 吉祥全 | market=上市 volume=True strong=True strong130=True signal130=True macd130=True vol20=1115 rs5=19.79 rs20=83.62 close=46.65
+2748 雲品 | market=上市 volume=True strong=True strong130=True signal130=True macd130=False vol20=84 rs5=-1.58 rs20=-17.36 close=38.65
+1295 生合 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=False vol20=43 rs5=-1.41 rs20=-18.48 close=46.5
+2745 五福 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=False vol20=93 rs5=-1.12 rs20=-15.97 close=89.3
+3163 波若威 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=False vol20=4079 rs5=6.61 rs20=29.62 close=777.0
+3162 精確 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=False vol20=939 rs5=15.18 rs20=10.17 close=73.4
+3219 倚強科 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=True vol20=319 rs5=8.3 rs20=19.19 close=76.9
+3324 雙鴻 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=True vol20=2809 rs5=5.87 rs20=7.35 close=1075.0
+3354 律勝 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=False vol20=126 rs5=8.34 rs20=-0.17 close=22.4
+3548 兆利 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=False vol20=166 rs5=5.09 rs20=0.21 close=80.4
+4303 信立 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=False vol20=1005 rs5=9.98 rs20=16.77 close=54.6
+4908 前鼎 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=False vol20=2214 rs5=13.9 rs20=23.46 close=178.0
+4979 華星光 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=True vol20=9221 rs5=10.22 rs20=37.15 close=598.0
+5381 光譜 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=False vol20=324 rs5=3.93 rs20=-1.79 close=25.3
+6171 大城地產 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=False vol20=26 rs5=5.35 rs20=-9.74 close=25.15
+6170 統振 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=False vol20=135 rs5=-0.51 rs20=-11.34 close=48.65
+6261 久元 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=False vol20=433 rs5=5.31 rs20=-5.65 close=82.4
+6290 良維 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=False vol20=3787 rs5=5.01 rs20=0.64 close=241.0
+6499 益安 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=False vol20=314 rs5=13.25 rs20=4.27 close=71.5
+6617 共信-KY | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=True vol20=892 rs5=30.58 rs20=42.59 close=127.0
+6741 91APP*-KY | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=False vol20=260 rs5=4.37 rs20=-11.38 close=58.1
+6751 智聯服務 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=False vol20=7 rs5=-1.74 rs20=-13.87 close=41.75
+7712 博盛半導體 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=True vol20=354 rs5=8.63 rs20=13.72 close=160.5
+8034 榮群 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=False vol20=90 rs5=5.01 rs20=-11.41 close=19.95
+8171 天宇 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=False vol20=76 rs5=1.3 rs20=-10.93 close=20.2
+8227 巨有科技 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=False vol20=691 rs5=11.03 rs20=7.37 close=168.5
+8390 金益鼎 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=False vol20=469 rs5=4.09 rs20=-3.64 close=102.0
+8423 保綠-KY | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=False vol20=14 rs5=-1.7 rs20=-14.93 close=18.0
+8917 欣泰 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=False vol20=6 rs5=-0.33 rs20=-17.05 close=53.5
+8928 鉅明 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=True vol20=32 rs5=6.13 rs20=-6.74 close=24.95
+8932 智通* | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=False vol20=3363 rs5=2.68 rs20=10.12 close=115.0
+9949 琉園 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=False vol20=44 rs5=1.04 rs20=-12.24 close=24.2
+
+### strong_and_macd130 (16)
+1563 巧新 | market=上市 volume=True strong=True strong130=True signal130=True macd130=True vol20=1465 rs5=5.71 rs20=6.19 close=66.0
+2362 藍天 | market=上市 volume=False strong=True strong130=True signal130=True macd130=True vol20=2561 rs5=1.86 rs20=3.09 close=49.2
+2392 正崴 | market=上市 volume=False strong=True strong130=True signal130=True macd130=True vol20=4700 rs5=7.5 rs20=19.91 close=45.15
+2491 吉祥全 | market=上市 volume=True strong=True strong130=True signal130=True macd130=True vol20=1115 rs5=19.79 rs20=83.62 close=46.65
+3219 倚強科 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=True vol20=319 rs5=8.3 rs20=19.19 close=76.9
+3324 雙鴻 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=True vol20=2809 rs5=5.87 rs20=7.35 close=1075.0
+3693 營邦 | market=上櫃 volume=False strong=True strong130=True signal130=True macd130=True vol20=878 rs5=7.02 rs20=11.54 close=558.0
+4506 崇友 | market=上櫃 volume=False strong=True strong130=True signal130=True macd130=True vol20=63 rs5=-2.01 rs20=-16.3 close=123.0
+4979 華星光 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=True vol20=9221 rs5=10.22 rs20=37.15 close=598.0
+5291 邑昇 | market=上櫃 volume=False strong=True strong130=True signal130=True macd130=True vol20=618 rs5=7.9 rs20=13.73 close=60.9
+6147 頎邦 | market=上櫃 volume=False strong=True strong130=True signal130=True macd130=True vol20=25163 rs5=12.04 rs20=28.85 close=185.5
+6538 倉和 | market=上櫃 volume=False strong=True strong130=True signal130=True macd130=True vol20=2973 rs5=7.88 rs20=55.39 close=212.0
+6617 共信-KY | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=True vol20=892 rs5=30.58 rs20=42.59 close=127.0
+6727 亞泰金屬 | market=上櫃 volume=False strong=True strong130=True signal130=True macd130=True vol20=1110 rs5=6.08 rs20=37.93 close=483.0
+7712 博盛半導體 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=True vol20=354 rs5=8.63 rs20=13.72 close=160.5
+8928 鉅明 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=True vol20=32 rs5=6.13 rs20=-6.74 close=24.95
+
+### volume_and_strong (38)
+1219 福壽 | market=上市 volume=True strong=True strong130=True signal130=True macd130=False vol20=621 rs5=5.69 rs20=-12.32 close=11.9
+1563 巧新 | market=上市 volume=True strong=True strong130=True signal130=True macd130=True vol20=1465 rs5=5.71 rs20=6.19 close=66.0
+1711 永光 | market=上市 volume=True strong=True strong130=True signal130=True macd130=False vol20=4931 rs5=13.98 rs20=26.07 close=44.2
+1725 元禎 | market=上市 volume=True strong=True strong130=True signal130=True macd130=False vol20=40 rs5=1.3 rs20=-5.47 close=31.5
+1805 寶徠 | market=上市 volume=True strong=True strong130=True signal130=True macd130=False vol20=76 rs5=-1.01 rs20=-10.11 close=10.3
+2009 第一銅 | market=上市 volume=True strong=True strong130=True signal130=True macd130=False vol20=2905 rs5=8.56 rs20=8.78 close=43.2
+2491 吉祥全 | market=上市 volume=True strong=True strong130=True signal130=True macd130=True vol20=1115 rs5=19.79 rs20=83.62 close=46.65
+2748 雲品 | market=上市 volume=True strong=True strong130=True signal130=True macd130=False vol20=84 rs5=-1.58 rs20=-17.36 close=38.65
+1295 生合 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=False vol20=43 rs5=-1.41 rs20=-18.48 close=46.5
+2745 五福 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=False vol20=93 rs5=-1.12 rs20=-15.97 close=89.3
+3163 波若威 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=False vol20=4079 rs5=6.61 rs20=29.62 close=777.0
+3162 精確 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=False vol20=939 rs5=15.18 rs20=10.17 close=73.4
+3219 倚強科 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=True vol20=319 rs5=8.3 rs20=19.19 close=76.9
+3324 雙鴻 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=True vol20=2809 rs5=5.87 rs20=7.35 close=1075.0
+3354 律勝 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=False vol20=126 rs5=8.34 rs20=-0.17 close=22.4
+3548 兆利 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=False vol20=166 rs5=5.09 rs20=0.21 close=80.4
+4303 信立 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=False vol20=1005 rs5=9.98 rs20=16.77 close=54.6
+4908 前鼎 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=False vol20=2214 rs5=13.9 rs20=23.46 close=178.0
+4979 華星光 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=True vol20=9221 rs5=10.22 rs20=37.15 close=598.0
+5381 光譜 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=False vol20=324 rs5=3.93 rs20=-1.79 close=25.3
+6171 大城地產 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=False vol20=26 rs5=5.35 rs20=-9.74 close=25.15
+6170 統振 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=False vol20=135 rs5=-0.51 rs20=-11.34 close=48.65
+6261 久元 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=False vol20=433 rs5=5.31 rs20=-5.65 close=82.4
+6290 良維 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=False vol20=3787 rs5=5.01 rs20=0.64 close=241.0
+6499 益安 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=False vol20=314 rs5=13.25 rs20=4.27 close=71.5
+6617 共信-KY | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=True vol20=892 rs5=30.58 rs20=42.59 close=127.0
+6741 91APP*-KY | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=False vol20=260 rs5=4.37 rs20=-11.38 close=58.1
+6751 智聯服務 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=False vol20=7 rs5=-1.74 rs20=-13.87 close=41.75
+7712 博盛半導體 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=True vol20=354 rs5=8.63 rs20=13.72 close=160.5
+8034 榮群 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=False vol20=90 rs5=5.01 rs20=-11.41 close=19.95
+8171 天宇 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=False vol20=76 rs5=1.3 rs20=-10.93 close=20.2
+8227 巨有科技 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=False vol20=691 rs5=11.03 rs20=7.37 close=168.5
+8390 金益鼎 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=False vol20=469 rs5=4.09 rs20=-3.64 close=102.0
+8423 保綠-KY | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=False vol20=14 rs5=-1.7 rs20=-14.93 close=18.0
+8917 欣泰 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=False vol20=6 rs5=-0.33 rs20=-17.05 close=53.5
+8928 鉅明 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=True vol20=32 rs5=6.13 rs20=-6.74 close=24.95
+8932 智通* | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=False vol20=3363 rs5=2.68 rs20=10.12 close=115.0
+9949 琉園 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=False vol20=44 rs5=1.04 rs20=-12.24 close=24.2
+
+### macd130_true (37)
+1321 大洋 | market=上市 volume=True strong=False strong130=False signal130=True macd130=True vol20=141 rs5=3.64 rs20=-9.49 close=33.75
+1563 巧新 | market=上市 volume=True strong=True strong130=True signal130=True macd130=True vol20=1465 rs5=5.71 rs20=6.19 close=66.0
+1726 永記 | market=上市 volume=False strong=False strong130=False signal130=True macd130=True vol20=25 rs5=-0.67 rs20=-14.72 close=78.2
+2015 豐興 | market=上市 volume=False strong=False strong130=False signal130=True macd130=True vol20=279 rs5=-0.61 rs20=-15.54 close=64.9
+2025 千興 | market=上市 volume=True strong=False strong130=False signal130=True macd130=True vol20=579 rs5=4.68 rs20=-6.44 close=13.45
+2069 運錩 | market=上市 volume=True strong=False strong130=False signal130=True macd130=True vol20=545 rs5=7.33 rs20=7.66 close=21.8
+2207 和泰車 | market=上市 volume=False strong=False strong130=False signal130=True macd130=True vol20=415 rs5=0.87 rs20=-13.7 close=523.0
+2301 光寶科 | market=上市 volume=True strong=False strong130=False signal130=True macd130=True vol20=39343 rs5=9.76 rs20=51.48 close=307.0
+2362 藍天 | market=上市 volume=False strong=True strong130=True signal130=True macd130=True vol20=2561 rs5=1.86 rs20=3.09 close=49.2
+2392 正崴 | market=上市 volume=False strong=True strong130=True signal130=True macd130=True vol20=4700 rs5=7.5 rs20=19.91 close=45.15
+2426 鼎元 | market=上市 volume=True strong=False strong130=False signal130=True macd130=True vol20=24983 rs5=44.28 rs20=83.94 close=99.8
+2486 一詮 | market=上市 volume=True strong=False strong130=False signal130=True macd130=True vol20=9691 rs5=9.21 rs20=27.81 close=262.5
+2491 吉祥全 | market=上市 volume=True strong=True strong130=True signal130=True macd130=True vol20=1115 rs5=19.79 rs20=83.62 close=46.65
+2908 特力 | market=上市 volume=True strong=False strong130=False signal130=True macd130=True vol20=210 rs5=-0.41 rs20=-14.92 close=22.05
+3152 璟德 | market=上櫃 volume=True strong=False strong130=False signal130=True macd130=True vol20=251 rs5=13.77 rs20=3.98 close=260.0
+3176 基亞 | market=上櫃 volume=True strong=False strong130=False signal130=True macd130=True vol20=674 rs5=14.23 rs20=5.8 close=39.8
+3219 倚強科 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=True vol20=319 rs5=8.3 rs20=19.19 close=76.9
+3324 雙鴻 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=True vol20=2809 rs5=5.87 rs20=7.35 close=1075.0
+3362 先進光 | market=上櫃 volume=True strong=False strong130=False signal130=True macd130=True vol20=8721 rs5=8.47 rs20=-1.95 close=202.0
+3693 營邦 | market=上櫃 volume=False strong=True strong130=True signal130=True macd130=True vol20=878 rs5=7.02 rs20=11.54 close=558.0
+4153 鈺緯 | market=上櫃 volume=False strong=False strong130=False signal130=True macd130=True vol20=15 rs5=-1.16 rs20=-10.15 close=33.55
+4506 崇友 | market=上櫃 volume=False strong=True strong130=True signal130=True macd130=True vol20=63 rs5=-2.01 rs20=-16.3 close=123.0
+4707 磐亞 | market=上櫃 volume=True strong=False strong130=False signal130=True macd130=True vol20=5525 rs5=7.53 rs20=15.93 close=34.65
+4939 亞電 | market=上櫃 volume=True strong=False strong130=False signal130=True macd130=True vol20=15559 rs5=27.42 rs20=39.38 close=78.8
+4979 華星光 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=True vol20=9221 rs5=10.22 rs20=37.15 close=598.0
+5291 邑昇 | market=上櫃 volume=False strong=True strong130=True signal130=True macd130=True vol20=618 rs5=7.9 rs20=13.73 close=60.9
+5460 同協 | market=上櫃 volume=True strong=False strong130=False signal130=True macd130=True vol20=42 rs5=0.3 rs20=-10.18 close=16.5
+6021 美好證 | market=上櫃 volume=True strong=False strong130=False signal130=True macd130=True vol20=126 rs5=6.65 rs20=3.67 close=39.3
+6147 頎邦 | market=上櫃 volume=False strong=True strong130=True signal130=True macd130=True vol20=25163 rs5=12.04 rs20=28.85 close=185.5
+6538 倉和 | market=上櫃 volume=False strong=True strong130=True signal130=True macd130=True vol20=2973 rs5=7.88 rs20=55.39 close=212.0
+6547 高端疫苗 | market=上櫃 volume=True strong=False strong130=False signal130=True macd130=True vol20=4043 rs5=16.9 rs20=17.07 close=61.9
+6617 共信-KY | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=True vol20=892 rs5=30.58 rs20=42.59 close=127.0
+6727 亞泰金屬 | market=上櫃 volume=False strong=True strong130=True signal130=True macd130=True vol20=1110 rs5=6.08 rs20=37.93 close=483.0
+6712 長聖 | market=上櫃 volume=True strong=False strong130=False signal130=True macd130=True vol20=369 rs5=5.02 rs20=-10.53 close=158.0
+7712 博盛半導體 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=True vol20=354 rs5=8.63 rs20=13.72 close=160.5
+8433 弘帆 | market=上櫃 volume=False strong=False strong130=False signal130=True macd130=True vol20=18 rs5=0.3 rs20=-10.9 close=56.1
+8928 鉅明 | market=上櫃 volume=True strong=True strong130=True signal130=True macd130=True vol20=32 rs5=6.13 rs20=-6.74 close=24.95
+
+### 3324
+{"avgVolume20": 2809, "close": 1075.0, "code": "3324", "kd": "08/25", "macd": "08/26", "macd130": true, "macd60": false, "market": "上櫃", "name": "雙鴻", "rs20": 7.35, "rs5": 5.87, "signal130": true, "signal60": false, "streak": 2, "strong": true, "strong130": true, "strong60": false, "volume": true}
