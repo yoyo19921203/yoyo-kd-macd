@@ -1,0 +1,179 @@
+name: MACD130 官方歷史資料驗證 V19
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/macd130_official_history_v19.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - run: pip install pandas requests
+
+      - name: 用 production 官方 TWSE/TPEx 歷史直接對凱基
+        run: |
+          python - <<'PY'
+          import json, os, requests
+          from pathlib import Path
+          import pandas as pd
+
+          # 讀凱基真值
+          html=requests.get('https://yachia2002.github.io/kd-macd-public-report/',timeout=30).text
+          a=html.find('const HISTORY = ')
+          p=html.find('{',a)
+          dep=0; ins=False; esc=False
+          for j in range(p,len(html)):
+              c=html[j]
+              if ins:
+                  if esc: esc=False
+                  elif c=='\\': esc=True
+                  elif c=='"': ins=False
+                  continue
+              if c=='"': ins=True
+              elif c=='{': dep+=1
+              elif c=='}':
+                  dep-=1
+                  if dep==0:
+                      q=j+1
+                      break
+          H=json.loads(html[p:q])
+
+          dates=['2026-08-25','2026-08-26','2026-08-27']
+          refs=[]
+          for d in dates:
+              for r in H[d]:
+                  refs.append((pd.Timestamp(d),str(r.get('code','')).strip(),bool(r.get('macd130'))))
+
+          # 讀 production 的官方 raw 歷史
+          rows=[]
+          for fn in sorted(os.listdir('data/raw')):
+              if not fn.endswith('.json'):
+                  continue
+              with open('data/raw/'+fn,encoding='utf-8') as f:
+                  snap=json.load(f)
+              d=pd.to_datetime(snap.get('date',fn[:-5]),format='%Y%m%d')
+              if d > pd.Timestamp('2026-08-27'):
+                  continue
+              for r in snap.get('rows',[]):
+                  code=str(r.get('code','')).strip()
+                  if len(code)!=4 or not code.isdigit():
+                      continue
+                  try:
+                      rows.append({
+                          'date':d,'code':code,
+                          'high':float(r['high']),
+                          'low':float(r['low']),
+                          'close':float(r['close'])
+                      })
+                  except Exception:
+                      pass
+
+          df=pd.DataFrame(rows).drop_duplicates(['date','code'],keep='last')
+          groups={}
+          for code,g in df.groupby('code'):
+              g=g.sort_values('date').reset_index(drop=True)
+              groups[code]=g
+
+          ref_by_code={}
+          for d,code,exp in refs:
+              ref_by_code.setdefault(code,[]).append((d,exp))
+
+          def eval_combo(fast,signal,adjust,basis,rule):
+              bad=[]; tested=0; skipped=[]
+              for code,items in ref_by_code.items():
+                  g=groups.get(code)
+                  if g is None:
+                      for d,_ in items: skipped.append(f'{d.date()}:{code}:NO_DATA')
+                      continue
+                  if basis=='WCL':
+                      x=(2*g['close']+g['high']+g['low'])/4
+                  else:
+                      x=g['close']
+                  ef=x.ewm(span=fast,adjust=adjust).mean()
+                  es=x.ewm(span=130,adjust=adjust).mean()
+                  dif=ef-es
+                  sig=dif.ewm(span=signal,adjust=adjust).mean()
+                  dd=pd.DataFrame({'date':g['date'],'dif':dif,'sig':sig})
+                  for d,exp in items:
+                      z=dd[dd['date']<=d]
+                      if z.empty or len(z)<130:
+                          skipped.append(f'{d.date()}:{code}:LT130')
+                          continue
+                      r=z.iloc[-1]
+                      if rule=='SIGNAL':
+                          got=bool(r['sig']>0)
+                      elif rule=='DIF_AND_SIGNAL':
+                          got=bool((r['dif']>0) and (r['sig']>0))
+                      else:
+                          got=bool(r['dif']>0)
+                      tested+=1
+                      if got!=exp:
+                          bad.append(f'{d.date()}:{code}')
+              return tested,bad,skipped
+
+          results=[]
+          for basis in ['WCL','CLOSE']:
+              for adjust in [False,True]:
+                  for fast in range(2,31):
+                      for signal in range(2,16):
+                          for rule in ['SIGNAL','DIF_AND_SIGNAL']:
+                              tested,bad,skipped=eval_combo(fast,signal,adjust,basis,rule)
+                              results.append((len(bad),-tested,basis,adjust,fast,signal,rule,tested,bad,skipped))
+
+          results.sort(key=lambda x:(x[0],x[1],x[2]!='WCL',x[3],x[4],x[5],x[6]))
+
+          out=[
+              '=== MACD130 OFFICIAL HISTORY V19 ===',
+              f'RAW_ROWS={len(df)} CODES={len(groups)} REFS={len(refs)}',
+              'SOURCE=repo data/raw official TWSE/TPEx',
+              '',
+              'TOP 50'
+          ]
+
+          for badn,nt,basis,adjust,fast,signal,rule,tested,bad,skipped in results[:50]:
+              out.append(
+                  f'BAD={badn} tested={tested} basis={basis} adjust={adjust} '
+                  f'fast={fast} signal={signal} slow=130 rule={rule} '
+                  f'mism={",".join(bad[:60])}'
+              )
+
+          out += ['', 'CURRENT_PRODUCTION WCL 12/9/130 SIGNAL']
+          tested,bad,skipped=eval_combo(12,9,False,'WCL','SIGNAL')
+          out.append(f'BAD={len(bad)} tested={tested} mism={",".join(bad)}')
+          out.append(f'SKIPPED={len(skipped)} samples={",".join(skipped[:60])}')
+
+          best=results[0]
+          out += [
+              '',
+              f'BEST BAD={best[0]} tested={best[7]} basis={best[2]} adjust={best[3]} '
+              f'fast={best[4]} signal={best[5]} slow=130 rule={best[6]}',
+              'BEST_MISMATCHES',
+              *best[8],
+              '',
+              f'BEST_SKIPPED={len(best[9])}',
+              *best[9][:100],
+          ]
+
+          Path('docs/data/macd130_official_history_v19.txt').write_text('\n'.join(out),encoding='utf-8')
+          print('\n'.join(out))
+          PY
+
+      - name: 提交結果
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/data/macd130_official_history_v19.txt
+          git diff --cached --quiet || (git commit -m '驗證 MACD130 官方歷史資料 V19' && git push)
