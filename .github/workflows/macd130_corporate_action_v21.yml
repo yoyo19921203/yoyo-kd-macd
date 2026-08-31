@@ -1,0 +1,367 @@
+name: MACD130 權息還原驗證 V21
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install
+        run: pip install pandas requests
+
+      - name: 驗證權息還原與 Yahoo 調整
+        run: |
+          python - <<'PY'
+          import json, os, re, time, math
+          from pathlib import Path
+          from datetime import date, timedelta, datetime, timezone
+          import requests
+          import pandas as pd
+
+          REPORT_DATES = ['2026-08-25','2026-08-26','2026-08-27']
+          END = pd.Timestamp('2026-08-27')
+          LONG_START = date(2024,1,1)
+          OUT = Path('docs/data/macd130_corporate_action_v21.txt')
+          OUT.parent.mkdir(parents=True, exist_ok=True)
+
+          S = requests.Session()
+          S.headers.update({'User-Agent':'Mozilla/5.0'})
+
+          def get_json(url, tries=5):
+              for i in range(tries):
+                  try:
+                      r=S.get(url, timeout=30)
+                      if r.status_code == 429:
+                          time.sleep(2+i*2)
+                          continue
+                      r.raise_for_status()
+                      return r.json()
+                  except Exception:
+                      if i == tries-1:
+                          return None
+                      time.sleep(1+i)
+              return None
+
+          # ---------- KGI truth ----------
+          html=S.get('https://yachia2002.github.io/kd-macd-public-report/',timeout=30).text
+          a=html.find('const HISTORY = ')
+          p=html.find('{',a)
+          dep=0; ins=False; esc=False; q=None
+          for j in range(p,len(html)):
+              c=html[j]
+              if ins:
+                  if esc: esc=False
+                  elif c=='\\': esc=True
+                  elif c=='"': ins=False
+                  continue
+              if c=='"': ins=True
+              elif c=='{': dep+=1
+              elif c=='}':
+                  dep-=1
+                  if dep==0:
+                      q=j+1; break
+          H=json.loads(html[p:q])
+
+          refs=[]; target_codes=set()
+          for d in REPORT_DATES:
+              for r in H[d]:
+                  code=str(r.get('code','')).strip()
+                  if len(code)==4 and code.isdigit():
+                      refs.append((pd.Timestamp(d),code,bool(r.get('macd130'))))
+                      target_codes.add(code)
+
+          # ---------- repo raw ----------
+          rows=[]; market_map={}; min_repo_date=None
+          for fn in sorted(os.listdir('data/raw')):
+              if not fn.endswith('.json'): continue
+              try:
+                  snap=json.load(open('data/raw/'+fn,encoding='utf-8'))
+                  d=pd.to_datetime(snap.get('date',fn[:-5]),format='%Y%m%d')
+              except Exception:
+                  continue
+              if d > END: continue
+              if min_repo_date is None or d < min_repo_date: min_repo_date=d
+              for r in snap.get('rows',[]):
+                  code=str(r.get('code','')).strip()
+                  if code not in target_codes: continue
+                  try:
+                      rows.append({'date':d,'code':code,'high':float(r['high']),
+                                   'low':float(r['low']),'close':float(r['close'])})
+                      m=str(r.get('market','')).strip()
+                      if m: market_map[code]=m
+                  except Exception:
+                      pass
+          if min_repo_date is None:
+              raise RuntimeError('repo raw missing')
+          old_end=(min_repo_date-pd.Timedelta(days=1)).date()
+
+          def num(v):
+              if v is None: return None
+              s=re.sub(r'<[^>]*>','',str(v)).replace(',','').strip()
+              if s in ('','--','---','----','N/A'): return None
+              try: return float(s)
+              except: return None
+          def txt(v):
+              return re.sub(r'<[^>]*>','',str(v or '')).strip()
+
+          def fetch_twse_day(d):
+              u=f'https://www.twse.com.tw/exchangeReport/MI_INDEX?response=json&date={d.strftime("%Y%m%d")}&type=ALLBUT0999'
+              x=get_json(u); out=[]
+              if not x or x.get('stat')!='OK': return out
+              for t in x.get('tables',[]):
+                  fs=t.get('fields',[])
+                  if '證券代號' not in fs or '收盤價' not in fs: continue
+                  ix={f:i for i,f in enumerate(fs)}
+                  for rr in t.get('data',[]):
+                      try:
+                          code=txt(rr[ix['證券代號']])
+                          if code not in target_codes: continue
+                          h=num(rr[ix['最高價']]); l=num(rr[ix['最低價']]); c=num(rr[ix['收盤價']])
+                          if None in (h,l,c): continue
+                          out.append({'date':pd.Timestamp(d),'code':code,'high':h,'low':l,'close':c})
+                          market_map.setdefault(code,'上市')
+                      except Exception: pass
+              return out
+
+          def fetch_tpex_day(d):
+              roc=f'{d.year-1911}/{d.month:02d}/{d.day:02d}'
+              u=('https://www.tpex.org.tw/web/stock/aftertrading/otc_quotes_no1430/'
+                 f'stk_wn1430_result.php?l=zh-tw&d={roc}&se=EW&o=json')
+              x=get_json(u); out=[]
+              if not x or not x.get('tables'): return out
+              for rr in x['tables'][0].get('data',[]):
+                  if len(rr)<8: continue
+                  try:
+                      code=txt(rr[0])
+                      if code not in target_codes: continue
+                      c=num(rr[2]); h=num(rr[5]); l=num(rr[6])
+                      if None in (h,l,c): continue
+                      out.append({'date':pd.Timestamp(d),'code':code,'high':h,'low':l,'close':c})
+                      market_map.setdefault(code,'上櫃')
+                  except Exception: pass
+              return out
+
+          fetched_days=0
+          d=LONG_START
+          while d<=old_end:
+              if d.weekday()<5:
+                  a=fetch_twse_day(d); b=fetch_tpex_day(d)
+                  if a or b:
+                      rows.extend(a); rows.extend(b); fetched_days+=1
+                  if fetched_days and fetched_days%50==0:
+                      print('official progress',fetched_days,d)
+                  time.sleep(0.06)
+              d+=timedelta(days=1)
+
+          off=pd.DataFrame(rows).drop_duplicates(['date','code'],keep='last')
+          off=off.sort_values(['code','date']).reset_index(drop=True)
+          raw_groups={c:g.reset_index(drop=True) for c,g in off.groupby('code')}
+
+          # ---------- Yahoo corporate-action metadata ----------
+          P1=int(datetime(2023,12,1,tzinfo=timezone.utc).timestamp())
+          P2=int(datetime(2026,8,29,tzinfo=timezone.utc).timestamp())
+
+          yahoo={}
+          yahoo_missing=[]
+
+          def suffixes(code):
+              m=market_map.get(code,'')
+              if '上櫃' in m or m.upper() in ('OTC','TWO'):
+                  return ['.TWO','.TW']
+              if '上市' in m or m.upper() in ('TWSE','TW'):
+                  return ['.TW','.TWO']
+              return ['.TW','.TWO']
+
+          for n,code in enumerate(sorted(target_codes),1):
+              ok=None
+              for sf in suffixes(code):
+                  sym=code+sf
+                  u=(f'https://query1.finance.yahoo.com/v8/finance/chart/{sym}'
+                     f'?period1={P1}&period2={P2}&interval=1d&events=div%2Csplits'
+                     '&includeAdjustedClose=true')
+                  x=get_json(u)
+                  try:
+                      r=x['chart']['result'][0]
+                      ts=r.get('timestamp') or []
+                      qt=r['indicators']['quote'][0]
+                      ac=(r['indicators'].get('adjclose') or [{}])[0].get('adjclose') or []
+                      closes=qt.get('close') or []
+                      dates=[pd.Timestamp(datetime.fromtimestamp(t,timezone.utc).date()) for t in ts]
+                      ratios={}
+                      for dd,cc,aa in zip(dates,closes,ac):
+                          if cc not in (None,0) and aa is not None:
+                              ratios[dd]=float(aa)/float(cc)
+                      ev=r.get('events') or {}
+                      divs=[]
+                      for e in (ev.get('dividends') or {}).values():
+                          try:
+                              divs.append((pd.Timestamp(datetime.fromtimestamp(int(e['date']),timezone.utc).date()),
+                                           float(e['amount'])))
+                          except Exception: pass
+                      splits=[]
+                      for e in (ev.get('splits') or {}).values():
+                          try:
+                              ed=pd.Timestamp(datetime.fromtimestamp(int(e['date']),timezone.utc).date())
+                              nu=float(e.get('numerator') or 0); de=float(e.get('denominator') or 0)
+                              if nu>0 and de>0: ratio=nu/de
+                              else:
+                                  sr=str(e.get('splitRatio','')).replace(':','/').split('/')
+                                  ratio=float(sr[0])/float(sr[1])
+                              if ratio>0: splits.append((ed,ratio))
+                          except Exception: pass
+                      ok={'symbol':sym,'ratios':ratios,'divs':sorted(divs),'splits':sorted(splits)}
+                      break
+                  except Exception:
+                      continue
+              if ok is None:
+                  yahoo_missing.append(code)
+              else:
+                  yahoo[code]=ok
+              if n%50==0:
+                  print('yahoo progress',n,'missing',len(yahoo_missing))
+              time.sleep(0.05)
+
+          # ---------- create adjustment variants ----------
+          def yadj_group(code,g):
+              meta=yahoo.get(code)
+              if not meta or not meta['ratios']:
+                  return g.copy()
+              rr=pd.Series(meta['ratios']).sort_index()
+              idx=pd.DatetimeIndex(g['date'])
+              aligned=rr.reindex(idx,method='ffill')
+              aligned=aligned.bfill().fillna(1.0)
+              last=float(aligned.iloc[-1]) if len(aligned) else 1.0
+              if not math.isfinite(last) or last==0: last=1.0
+              factor=(aligned/last).values
+              z=g.copy()
+              for c in ['high','low','close']: z[c]=z[c].astype(float)*factor
+              return z
+
+          def split_group(code,g,direction='DIV'):
+              z=g.copy()
+              f=pd.Series(1.0,index=z.index)
+              meta=yahoo.get(code) or {}
+              for ed,ratio in meta.get('splits',[]):
+                  if ratio<=0: continue
+                  mult=(1.0/ratio) if direction=='DIV' else ratio
+                  f.loc[z['date']<ed] *= mult
+              for c in ['high','low','close']: z[c]=z[c].astype(float)*f.values
+              return z
+
+          def event_total_group(code,g):
+              z=g.copy()
+              f=pd.Series(1.0,index=z.index)
+              meta=yahoo.get(code) or {}
+              # split: standard back-adjustment
+              for ed,ratio in meta.get('splits',[]):
+                  if ratio>0: f.loc[z['date']<ed] *= (1.0/ratio)
+              # cash dividend: back-adjust previous history using ex-date drop factor
+              for ed,amt in meta.get('divs',[]):
+                  prev=z[z['date']<ed]
+                  if prev.empty: continue
+                  pc=float(prev.iloc[-1]['close'])
+                  if pc>0 and 0<=amt<pc:
+                      f.loc[z['date']<ed] *= ((pc-amt)/pc)
+              for c in ['high','low','close']: z[c]=z[c].astype(float)*f.values
+              return z
+
+          variants={
+              'RAW':raw_groups,
+              'YADJ':{},
+              'SPLIT_DIV':{},
+              'SPLIT_MUL':{},
+              'EVENT_TOTAL':{},
+          }
+          for code,g in raw_groups.items():
+              variants['YADJ'][code]=yadj_group(code,g)
+              variants['SPLIT_DIV'][code]=split_group(code,g,'DIV')
+              variants['SPLIT_MUL'][code]=split_group(code,g,'MUL')
+              variants['EVENT_TOTAL'][code]=event_total_group(code,g)
+
+          ref_by_code={}
+          for d,code,exp in refs:
+              ref_by_code.setdefault(code,[]).append((d,exp))
+
+          def evaluate(label,variant,basis='WCL',fast=12,signal=9,adjust=False):
+              bad=[]; tested=0; detail=[]
+              groups=variants[variant]
+              for code,items in ref_by_code.items():
+                  g=groups.get(code)
+                  if g is None or g.empty: continue
+                  x=(2*g['close']+g['high']+g['low'])/4 if basis=='WCL' else g['close']
+                  dif=x.ewm(span=fast,adjust=adjust).mean()-x.ewm(span=130,adjust=adjust).mean()
+                  sig=dif.ewm(span=signal,adjust=adjust).mean()
+                  for d,exp in items:
+                      zz=pd.DataFrame({'date':g['date'],'sig':sig})
+                      zz=zz[zz['date']<=d]
+                      if zz.empty: continue
+                      got=bool(zz.iloc[-1]['sig']>0); tested+=1
+                      if got!=exp:
+                          n=int((g['date']<=d).sum())
+                          ev=yahoo.get(code,{})
+                          bad.append(f'{d.date()}:{code}')
+                          detail.append(
+                              f'{d.date()}:{code} exp={int(exp)} got={int(got)} n={n} '
+                              f'market={market_map.get(code,"?")} symbol={ev.get("symbol","?")} '
+                              f'divs={ev.get("divs",[])} splits={ev.get("splits",[])}'
+                          )
+              return {'label':label,'bad':bad,'tested':tested,'detail':detail}
+
+          tests=[
+              evaluate('RAW_WCL_12_9_adjFalse','RAW','WCL',12,9,False),
+              evaluate('RAW_CLOSE_12_9_adjTrue','RAW','CLOSE',12,9,True),
+              evaluate('YADJ_WCL_12_9_adjFalse','YADJ','WCL',12,9,False),
+              evaluate('YADJ_CLOSE_12_9_adjFalse','YADJ','CLOSE',12,9,False),
+              evaluate('YADJ_CLOSE_12_9_adjTrue','YADJ','CLOSE',12,9,True),
+              evaluate('YADJ_WCL_5_14_adjFalse','YADJ','WCL',5,14,False),
+              evaluate('SPLIT_DIV_WCL_12_9_adjFalse','SPLIT_DIV','WCL',12,9,False),
+              evaluate('SPLIT_MUL_WCL_12_9_adjFalse','SPLIT_MUL','WCL',12,9,False),
+              evaluate('SPLIT_DIV_WCL_5_14_adjFalse','SPLIT_DIV','WCL',5,14,False),
+              evaluate('SPLIT_MUL_WCL_5_14_adjFalse','SPLIT_MUL','WCL',5,14,False),
+              evaluate('EVENT_TOTAL_WCL_12_9_adjFalse','EVENT_TOTAL','WCL',12,9,False),
+              evaluate('EVENT_TOTAL_CLOSE_12_9_adjTrue','EVENT_TOTAL','CLOSE',12,9,True),
+          ]
+          tests.sort(key=lambda x:(len(x['bad']),-x['tested']))
+
+          lines=[
+              '=== MACD130 CORPORATE ACTION V21 ===',
+              f'KGI_REFS={len(refs)} UNIQUE_CODES={len(target_codes)}',
+              f'OFFICIAL_ROWS={len(off)} OFFICIAL_CODES={off.code.nunique()} FETCHED_DAYS={fetched_days}',
+              f'YAHOO_OK={len(yahoo)} YAHOO_MISSING={len(yahoo_missing)} MISSING={",".join(yahoo_missing)}',
+              '',
+              'RESULTS'
+          ]
+          for t in tests:
+              lines.append(f'{t["label"]} BAD={len(t["bad"])} tested={t["tested"]} MISM={",".join(t["bad"])}')
+          best=tests[0]
+          lines += ['',f'BEST={best["label"]} BAD={len(best["bad"])} tested={best["tested"]}',
+                    'BEST_DETAIL',*best['detail']]
+          lines += ['','ALL_VARIANT_DETAILS']
+          for t in tests:
+              lines.append(f'--- {t["label"]} ---')
+              lines.extend(t['detail'])
+
+          OUT.write_text('\n'.join(lines),encoding='utf-8')
+          print('\n'.join(lines[:40]))
+          PY
+
+      - name: 提交結果
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/data/macd130_corporate_action_v21.txt
+          git diff --cached --quiet || (git commit -m '驗證 MACD130 權息還原 V21' && git push)
