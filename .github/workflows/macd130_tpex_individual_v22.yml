@@ -1,0 +1,360 @@
+name: MACD130 上櫃個股歷史精查 V22
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install
+        run: pip install pandas requests
+
+      - name: 只針對剩餘 8 檔上櫃股精查
+        run: |
+          python - <<'PY'
+          import json, math, re, time
+          from pathlib import Path
+          import requests
+          import pandas as pd
+
+          TARGETS = ['3219','8390','8928','5291','3105','3624','3680','6517']
+          REPORT_DATES = ['2026-08-25','2026-08-26','2026-08-27']
+          START_YM = (2022,1)
+          END_YM = (2026,8)
+          OUT = Path('docs/data/macd130_tpex_individual_v22.txt')
+          OUT.parent.mkdir(parents=True, exist_ok=True)
+
+          S=requests.Session()
+          S.headers.update({'User-Agent':'Mozilla/5.0'})
+
+          def get_json(url, tries=5):
+              last=None
+              for i in range(tries):
+                  try:
+                      r=S.get(url,timeout=30)
+                      r.raise_for_status()
+                      return r.json()
+                  except Exception as e:
+                      last=e
+                      if i < tries-1:
+                          time.sleep(1+i)
+              print('GET FAIL',url,last)
+              return None
+
+          def clean(v):
+              return re.sub(r'<[^>]*>','',str(v or '')).replace(',','').strip()
+
+          def fnum(v):
+              s=clean(v)
+              if s in ('','--','---','----','N/A'):
+                  return None
+              try: return float(s)
+              except: return None
+
+          def parse_roc_date(s):
+              s=clean(s).replace('-','/')
+              p=s.split('/')
+              if len(p)!=3: return None
+              try:
+                  return pd.Timestamp(int(p[0])+1911,int(p[1]),int(p[2]))
+              except:
+                  return None
+
+          html=S.get('https://yachia2002.github.io/kd-macd-public-report/',timeout=30).text
+          a=html.find('const HISTORY = ')
+          p=html.find('{',a)
+          dep=0; ins=False; esc=False; q=None
+          for j in range(p,len(html)):
+              c=html[j]
+              if ins:
+                  if esc: esc=False
+                  elif c=='\\': esc=True
+                  elif c=='"': ins=False
+                  continue
+              if c=='"': ins=True
+              elif c=='{': dep+=1
+              elif c=='}':
+                  dep-=1
+                  if dep==0:
+                      q=j+1; break
+          H=json.loads(html[p:q])
+
+          refs=[]
+          for d in REPORT_DATES:
+              for r in H[d]:
+                  code=str(r.get('code','')).strip()
+                  if code in TARGETS:
+                      sig130=r.get('signal130')
+                      try: sig130=float(sig130) if sig130 is not None else None
+                      except: sig130=None
+                      refs.append({
+                          'date':pd.Timestamp(d),
+                          'code':code,
+                          'expected':bool(r.get('macd130')),
+                          'signal130':sig130,
+                          'macd':r.get('macd'),
+                          'strong130':r.get('strong130')
+                      })
+
+          def month_iter(y1,m1,y2,m2):
+              y,m=y1,m1
+              while (y,m) <= (y2,m2):
+                  yield y,m
+                  m+=1
+                  if m==13:
+                      y+=1; m=1
+
+          def parse_month_payload(x):
+              rows=[]
+              if not x: return rows
+              raw=None
+              if isinstance(x.get('aaData'),list):
+                  raw=x.get('aaData')
+              elif x.get('tables'):
+                  for t in x.get('tables',[]):
+                      data=t.get('data',[])
+                      if data and len(data[0]) >= 7:
+                          raw=data
+                          break
+              elif isinstance(x.get('data'),list):
+                  raw=x.get('data')
+              if not raw:
+                  return rows
+              for rr in raw:
+                  if not isinstance(rr,(list,tuple)) or len(rr)<7:
+                      continue
+                  d=parse_roc_date(rr[0])
+                  if d is None: continue
+                  o=fnum(rr[3]); h=fnum(rr[4]); l=fnum(rr[5]); c=fnum(rr[6])
+                  if None in (o,h,l,c):
+                      continue
+                  rows.append({'date':d,'open':o,'high':h,'low':l,'close':c})
+              return rows
+
+          groups={}
+          payload_examples=[]
+          total_requests=0
+          for code in TARGETS:
+              rr=[]
+              for y,m in month_iter(*START_YM,*END_YM):
+                  roc=f'{y-1911}/{m:02d}'
+                  u=('https://www.tpex.org.tw/web/stock/aftertrading/'
+                     f'daily_trading_info/st43_result.php?l=zh-tw&d={roc}&stkno={code}')
+                  x=get_json(u)
+                  total_requests+=1
+                  if len(payload_examples)<4 and x:
+                      payload_examples.append(
+                          f'{code} {roc} keys={list(x.keys())} '
+                          f'tables_fields={(x.get("tables") or [{}])[0].get("fields",[]) if x.get("tables") else []}'
+                      )
+                  rr.extend(parse_month_payload(x))
+                  time.sleep(0.04)
+              g=pd.DataFrame(rr)
+              if not g.empty:
+                  g=(g.drop_duplicates('date',keep='last')
+                       .sort_values('date')
+                       .reset_index(drop=True))
+              groups[code]=g
+              print('code',code,'rows',len(g),
+                    'min',None if g.empty else g.date.min().date(),
+                    'max',None if g.empty else g.date.max().date())
+
+          repo_recent={c:{} for c in TARGETS}
+          raw_dir=Path('data/raw')
+          if raw_dir.exists():
+              for fn in raw_dir.glob('*.json'):
+                  try:
+                      snap=json.loads(fn.read_text(encoding='utf-8'))
+                      d=pd.to_datetime(snap.get('date',fn.stem),format='%Y%m%d')
+                  except:
+                      continue
+                  if d < pd.Timestamp('2026-07-01') or d > pd.Timestamp('2026-08-27'):
+                      continue
+                  for r in snap.get('rows',[]):
+                      c=str(r.get('code','')).strip()
+                      if c not in repo_recent: continue
+                      try:
+                          repo_recent[c][d]=(
+                              float(r['open']),float(r['high']),
+                              float(r['low']),float(r['close'])
+                          )
+                      except:
+                          pass
+
+          recent_price_mism=[]
+          for code,g in groups.items():
+              if g.empty: continue
+              bydate={r.date:(r.open,r.high,r.low,r.close) for r in g.itertuples()}
+              for d,a in repo_recent[code].items():
+                  b=bydate.get(d)
+                  if b is None:
+                      recent_price_mism.append(f'{code}:{d.date()}:MONTHLY_MISSING')
+                      continue
+                  if any(abs(float(x)-float(y))>1e-9 for x,y in zip(a,b)):
+                      recent_price_mism.append(f'{code}:{d.date()}:repo={a}:monthly={b}')
+
+          ref_by_code={}
+          for r in refs:
+              ref_by_code.setdefault(r['code'],[]).append(r)
+
+          def calc(g,basis,fast,signal,adjust):
+              if basis=='CLOSE':
+                  x=g['close'].astype(float)
+              elif basis=='HLC3':
+                  x=(g['high']+g['low']+g['close'])/3
+              else:
+                  x=(2*g['close']+g['high']+g['low'])/4
+              dif=x.ewm(span=fast,adjust=adjust).mean()-x.ewm(span=130,adjust=adjust).mean()
+              sig=dif.ewm(span=signal,adjust=adjust).mean()
+              return pd.DataFrame({'date':g['date'],'dif':dif,'sig':sig})
+
+          results=[]
+          for basis in ['CLOSE','HLC3','WCL']:
+              for adjust in [False,True]:
+                  for fast in range(2,31):
+                      for signal in range(2,16):
+                          bad=[]; pairs=[]; tested=0
+                          for code,items in ref_by_code.items():
+                              g=groups.get(code)
+                              if g is None or g.empty: continue
+                              z=calc(g,basis,fast,signal,adjust)
+                              for item in items:
+                                  q=z[z['date']<=item['date']]
+                                  if q.empty: continue
+                                  row=q.iloc[-1]
+                                  got=bool(row['sig']>0)
+                                  tested+=1
+                                  if got!=item['expected']:
+                                      bad.append(f'{item["date"].date()}:{code}')
+                                  if item['signal130'] is not None and math.isfinite(item['signal130']):
+                                      pairs.append((float(row['sig']),float(item['signal130'])))
+                          mae=None
+                          if pairs:
+                              mae=sum(abs(a-b) for a,b in pairs)/len(pairs)
+                          results.append({
+                              'basis':basis,'adjust':adjust,'fast':fast,'signal':signal,
+                              'bad':bad,'tested':tested,'mae':mae
+                          })
+
+          results.sort(key=lambda r:(len(r['bad']),
+                                     float('inf') if r['mae'] is None else r['mae'],
+                                     r['fast'],r['signal']))
+          best=results[0]
+
+          def pick(basis,adjust,fast,signal):
+              return next(r for r in results
+                          if r['basis']==basis and r['adjust']==adjust
+                          and r['fast']==fast and r['signal']==signal)
+
+          current=pick('WCL',False,12,9)
+          v20best=pick('CLOSE',True,12,9)
+
+          def detail_for(cfg):
+              out=[]
+              for code,items in ref_by_code.items():
+                  g=groups.get(code)
+                  if g is None or g.empty:
+                      out.append(f'{code}:NO_HISTORY')
+                      continue
+                  z=calc(g,cfg['basis'],cfg['fast'],cfg['signal'],cfg['adjust'])
+                  for item in items:
+                      q=z[z['date']<=item['date']]
+                      if q.empty:
+                          out.append(f'{item["date"].date()}:{code}:NO_ROW')
+                          continue
+                      row=q.iloc[-1]
+                      out.append(
+                          f'{item["date"].date()}:{code} '
+                          f'KGI_bool={int(item["expected"])} KGI_signal130={item["signal130"]} '
+                          f'calc_sig={float(row["sig"]):.10f} calc_dif={float(row["dif"]):.10f} '
+                          f'got={int(row["sig"]>0)} n={int((g.date<=item["date"]).sum())}'
+                      )
+              return out
+
+          lines=[
+              '=== MACD130 TPEX INDIVIDUAL V22 ===',
+              f'TARGETS={",".join(TARGETS)}',
+              f'KGI_TARGET_REFS={len(refs)} MONTH_REQUESTS={total_requests}',
+              '',
+              'PAYLOAD_EXAMPLES',
+              *payload_examples,
+              '',
+              'COVERAGE'
+          ]
+          for c,g in groups.items():
+              lines.append(
+                  f'{c} rows={len(g)} '
+                  f'min={None if g.empty else g.date.min().date()} '
+                  f'max={None if g.empty else g.date.max().date()}'
+              )
+
+          lines += [
+              '',
+              f'RECENT_REPO_VS_MONTHLY_MISMATCH_COUNT={len(recent_price_mism)}',
+              *recent_price_mism[:100],
+              '',
+              'TOP20'
+          ]
+          for r in results[:20]:
+              lines.append(
+                  f'BAD={len(r["bad"])} tested={r["tested"]} '
+                  f'basis={r["basis"]} adjust={r["adjust"]} '
+                  f'fast={r["fast"]} signal={r["signal"]} '
+                  f'MAE_SIGNAL130={r["mae"]} MISM={",".join(r["bad"])}'
+              )
+
+          lines += [
+              '',
+              f'BEST BAD={len(best["bad"])} basis={best["basis"]} adjust={best["adjust"]} '
+              f'fast={best["fast"]} signal={best["signal"]} MAE_SIGNAL130={best["mae"]}',
+              f'BEST_MISM={",".join(best["bad"])}',
+              '',
+              f'CURRENT_WCL_12_9 BAD={len(current["bad"])} MAE_SIGNAL130={current["mae"]} '
+              f'MISM={",".join(current["bad"])}',
+              f'V20_BEST_CLOSE_12_9_ADJTRUE BAD={len(v20best["bad"])} MAE_SIGNAL130={v20best["mae"]} '
+              f'MISM={",".join(v20best["bad"])}',
+              '',
+              'BEST_DETAIL',
+              *detail_for(best),
+              '',
+              'CURRENT_DETAIL',
+              *detail_for(current),
+              '',
+              'KGI_RAW_TARGET_ROWS'
+          ]
+          for r in refs:
+              lines.append(
+                  f'{r["date"].date()}:{r["code"]} macd130={r["expected"]} '
+                  f'signal130={r["signal130"]} macd={r["macd"]} strong130={r["strong130"]}'
+              )
+
+          OUT.write_text('\n'.join(lines),encoding='utf-8')
+          print('\n'.join(lines[:120]))
+          PY
+
+      - name: 提交結果（先同步 main 避免再次 push 衝突）
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/data/macd130_tpex_individual_v22.txt
+          if ! git diff --cached --quiet; then
+            git commit -m '精查 MACD130 上櫃個股歷史 V22'
+            git pull --rebase origin main
+            git push origin main
+          fi
