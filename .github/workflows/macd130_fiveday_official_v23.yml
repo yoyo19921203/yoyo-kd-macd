@@ -1,0 +1,388 @@
+name: MACD130 五日官方長歷史驗證 V23
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install
+        run: pip install pandas requests
+
+      - name: 五日官方長歷史驗證
+        run: |
+          python - <<'PY'
+          import json, os, re, time, math
+          from pathlib import Path
+          from datetime import date, timedelta
+          import requests
+          import pandas as pd
+
+          REPORT_DATES = ['2026-08-25','2026-08-26','2026-08-27','2026-08-28','2026-09-01']
+          END = pd.Timestamp('2026-09-01')
+          LONG_START = date(2024,1,1)
+          OUT = Path('docs/data/macd130_fiveday_official_v23.txt')
+          OUT.parent.mkdir(parents=True, exist_ok=True)
+
+          S = requests.Session()
+          S.headers.update({'User-Agent':'Mozilla/5.0'})
+
+          def get_json(url, tries=4):
+              for i in range(tries):
+                  try:
+                      r=S.get(url, timeout=30)
+                      r.raise_for_status()
+                      return r.json()
+                  except Exception:
+                      if i == tries-1:
+                          return None
+                      time.sleep(1.0 + i*0.8)
+              return None
+
+          # ---------- KGI truth ----------
+          html=S.get('https://yachia2002.github.io/kd-macd-public-report/', timeout=30).text
+          a=html.find('const HISTORY = ')
+          p=html.find('{',a)
+          dep=0; ins=False; esc=False; q=None
+          for j in range(p,len(html)):
+              c=html[j]
+              if ins:
+                  if esc: esc=False
+                  elif c=='\\': esc=True
+                  elif c=='"': ins=False
+                  continue
+              if c=='"': ins=True
+              elif c=='{': dep+=1
+              elif c=='}':
+                  dep-=1
+                  if dep==0:
+                      q=j+1; break
+          if a < 0 or p < 0 or q is None:
+              raise RuntimeError('找不到 KGI HISTORY')
+          H=json.loads(html[p:q])
+
+          refs=[]
+          target_codes=set()
+          keys_by_date={}
+          for d in REPORT_DATES:
+              if d not in H:
+                  raise RuntimeError(f'KGI HISTORY 缺少日期 {d}')
+              keys_by_date[d]=sorted(H[d][0].keys()) if H[d] else []
+              for r in H[d]:
+                  code=str(r.get('code','')).strip()
+                  if len(code)==4 and code.isdigit():
+                      sig130=r.get('signal130')
+                      try:
+                          sig130=float(sig130) if sig130 is not None else None
+                      except:
+                          sig130=None
+                      refs.append({
+                          'date':pd.Timestamp(d),
+                          'code':code,
+                          'expected':bool(r.get('macd130')),
+                          'signal130':sig130,
+                      })
+                      target_codes.add(code)
+
+          # ---------- repo raw ----------
+          rows=[]; market_map={}; min_repo_date=None
+          for fn in sorted(os.listdir('data/raw')):
+              if not fn.endswith('.json'): continue
+              try:
+                  snap=json.load(open('data/raw/'+fn,encoding='utf-8'))
+                  d=pd.to_datetime(snap.get('date',fn[:-5]),format='%Y%m%d')
+              except Exception:
+                  continue
+              if d > END: continue
+              if min_repo_date is None or d < min_repo_date:
+                  min_repo_date=d
+              for r in snap.get('rows',[]):
+                  code=str(r.get('code','')).strip()
+                  if code not in target_codes: continue
+                  try:
+                      rows.append({
+                          'date':d,'code':code,
+                          'open':float(r['open']),
+                          'high':float(r['high']),
+                          'low':float(r['low']),
+                          'close':float(r['close'])
+                      })
+                      m=str(r.get('market','')).strip()
+                      if m: market_map[code]=m
+                  except Exception:
+                      pass
+
+          if min_repo_date is None:
+              raise RuntimeError('data/raw 沒有可用日期')
+          old_end=(min_repo_date-pd.Timedelta(days=1)).date()
+
+          def num(v):
+              if v is None: return None
+              s=re.sub(r'<[^>]*>','',str(v)).replace(',','').strip()
+              if s in ('','--','---','----','N/A'): return None
+              try: return float(s)
+              except: return None
+
+          def txt(v):
+              return re.sub(r'<[^>]*>','',str(v or '')).strip()
+
+          def fetch_twse_day(d):
+              u=f'https://www.twse.com.tw/exchangeReport/MI_INDEX?response=json&date={d.strftime("%Y%m%d")}&type=ALLBUT0999'
+              x=get_json(u); out=[]
+              if not x or x.get('stat')!='OK': return out
+              for t in x.get('tables',[]):
+                  fs=t.get('fields',[])
+                  if '證券代號' not in fs or '收盤價' not in fs: continue
+                  ix={f:i for i,f in enumerate(fs)}
+                  for rr in t.get('data',[]):
+                      try:
+                          code=txt(rr[ix['證券代號']])
+                          if code not in target_codes: continue
+                          o=num(rr[ix['開盤價']]); h=num(rr[ix['最高價']])
+                          l=num(rr[ix['最低價']]); c=num(rr[ix['收盤價']])
+                          if None in (o,h,l,c): continue
+                          out.append({'date':pd.Timestamp(d),'code':code,'open':o,'high':h,'low':l,'close':c})
+                          market_map.setdefault(code,'上市')
+                      except Exception:
+                          pass
+              return out
+
+          def fetch_tpex_day(d):
+              roc=f'{d.year-1911}/{d.month:02d}/{d.day:02d}'
+              u=('https://www.tpex.org.tw/web/stock/aftertrading/'
+                 'otc_quotes_no1430/stk_wn1430_result.php'
+                 f'?l=zh-tw&d={roc}&se=EW&o=json')
+              x=get_json(u); out=[]
+              if not x or not x.get('tables'): return out
+              t=x['tables'][0]
+              raw=t.get('data',[])
+              for rr in raw:
+                  if len(rr)<8: continue
+                  try:
+                      code=txt(rr[0])
+                      if code not in target_codes: continue
+                      c=num(rr[2]); o=num(rr[4]); h=num(rr[5]); l=num(rr[6])
+                      if None in (o,h,l,c): continue
+                      out.append({'date':pd.Timestamp(d),'code':code,'open':o,'high':h,'low':l,'close':c})
+                      market_map.setdefault(code,'上櫃')
+                  except Exception:
+                      pass
+              return out
+
+          fetched_days=0; fetched_rows=0
+          d=LONG_START
+          while d<=old_end:
+              if d.weekday()<5:
+                  a=fetch_twse_day(d); b=fetch_tpex_day(d)
+                  if a or b:
+                      rows.extend(a); rows.extend(b)
+                      fetched_days += 1
+                      fetched_rows += len(a)+len(b)
+                  if fetched_days and fetched_days%50==0:
+                      print('official progress',fetched_days,d,'rows',fetched_rows)
+                  time.sleep(0.06)
+              d+=timedelta(days=1)
+
+          df=pd.DataFrame(rows)
+          if df.empty:
+              raise RuntimeError('沒有組出官方長歷史')
+          df=(df.drop_duplicates(['date','code'],keep='last')
+                .sort_values(['code','date'])
+                .reset_index(drop=True))
+          groups={c:g.reset_index(drop=True) for c,g in df.groupby('code')}
+
+          ref_by_code={}
+          for r in refs:
+              ref_by_code.setdefault(r['code'],[]).append(r)
+
+          cov=[]
+          for r in refs:
+              g=groups.get(r['code'])
+              cov.append(0 if g is None else int((g['date']<=r['date']).sum()))
+
+          def basis_series(g,basis):
+              if basis=='CLOSE':
+                  return g['close'].astype(float)
+              if basis=='HLC3':
+                  return (g['high']+g['low']+g['close'])/3.0
+              if basis=='OHLC4':
+                  return (g['open']+g['high']+g['low']+g['close'])/4.0
+              return (2*g['close']+g['high']+g['low'])/4.0
+
+          # Build a compact candidate set around all historically strong families.
+          specs=[]
+          for basis in ['CLOSE','HLC3','OHLC4','WCL']:
+              for adjust in [False,True]:
+                  for fast,signal in [
+                      (12,9),(5,14),(19,2),(2,9),(6,12),
+                      (8,9),(10,9),(14,9),(12,6),(12,12),
+                      (5,9),(9,9),(15,5),(20,2)
+                  ]:
+                      specs.append((basis,adjust,fast,signal,'SIGNAL'))
+
+          # A narrower local grid around standard 12/9 and V16 5/14.
+          for basis in ['CLOSE','WCL']:
+              for adjust in [False,True]:
+                  for fast in [3,4,5,6,7,8,9,10,11,12,13,14,15,16,18,19,20]:
+                      for signal in [2,3,4,5,6,7,8,9,10,11,12,13,14,15]:
+                          specs.append((basis,adjust,fast,signal,'SIGNAL'))
+
+          # Standard rule variants
+          for rule in ['DIF','DIF_AND_SIGNAL']:
+              specs.append(('WCL',False,12,9,rule))
+              specs.append(('CLOSE',True,12,9,rule))
+
+          # de-duplicate
+          specs=list(dict.fromkeys(specs))
+
+          cache={}
+          def calc_for(code,basis,adjust,fast,signal):
+              key=(code,basis,adjust,fast,signal)
+              if key in cache:
+                  return cache[key]
+              g=groups.get(code)
+              if g is None or g.empty:
+                  cache[key]=None
+                  return None
+              x=basis_series(g,basis)
+              ef=x.ewm(span=fast,adjust=adjust).mean()
+              es=x.ewm(span=130,adjust=adjust).mean()
+              dif=ef-es
+              sig=dif.ewm(span=signal,adjust=adjust).mean()
+              z=pd.DataFrame({'date':g['date'],'dif':dif,'sig':sig})
+              cache[key]=z
+              return z
+
+          def evaluate(spec):
+              basis,adjust,fast,signal,rule=spec
+              bad=[]; tested=0; skipped=[]
+              bydate={d:0 for d in REPORT_DATES}
+              pairs=[]
+              detail=[]
+              for code,items in ref_by_code.items():
+                  z=calc_for(code,basis,adjust,fast,signal)
+                  if z is None:
+                      for item in items:
+                          skipped.append(f'{item["date"].date()}:{code}:NO_DATA')
+                      continue
+                  for item in items:
+                      q=z[z['date']<=item['date']]
+                      if q.empty:
+                          skipped.append(f'{item["date"].date()}:{code}:EMPTY')
+                          continue
+                      rr=q.iloc[-1]
+                      if rule=='DIF':
+                          got=bool(rr['dif']>0)
+                      elif rule=='DIF_AND_SIGNAL':
+                          got=bool(rr['dif']>0 and rr['sig']>0)
+                      else:
+                          got=bool(rr['sig']>0)
+                      tested+=1
+                      ds=str(item['date'].date())
+                      if got!=item['expected']:
+                          bad.append(f'{ds}:{code}')
+                          bydate[ds]+=1
+                      if item['signal130'] is not None and math.isfinite(item['signal130']):
+                          pairs.append((float(rr['sig']),float(item['signal130'])))
+              mae=None
+              if pairs:
+                  mae=sum(abs(a-b) for a,b in pairs)/len(pairs)
+              return {
+                  'basis':basis,'adjust':adjust,'fast':fast,'signal':signal,'rule':rule,
+                  'bad':bad,'tested':tested,'skipped':skipped,'bydate':bydate,'mae':mae
+              }
+
+          results=[]
+          for i,spec in enumerate(specs,1):
+              results.append(evaluate(spec))
+              if i%100==0:
+                  print('candidate progress',i,'/',len(specs))
+
+          results.sort(key=lambda r:(
+              len(r['bad']),
+              -r['tested'],
+              len(r['skipped']),
+              float('inf') if r['mae'] is None else r['mae']
+          ))
+
+          def label(r):
+              return f'{r["basis"]}_{r["fast"]}_{r["signal"]}_adj{r["adjust"]}_{r["rule"]}'
+
+          current=next(r for r in results
+                       if r['basis']=='WCL' and r['adjust']==False
+                       and r['fast']==12 and r['signal']==9 and r['rule']=='SIGNAL')
+          close_std=next(r for r in results
+                         if r['basis']=='CLOSE' and r['adjust']==True
+                         and r['fast']==12 and r['signal']==9 and r['rule']=='SIGNAL')
+          best=results[0]
+
+          lines=[
+              '=== MACD130 FIVE-DAY OFFICIAL LONG HISTORY V23 ===',
+              f'REPORT_DATES={",".join(REPORT_DATES)}',
+              f'KGI_REFS={len(refs)} UNIQUE_CODES={len(target_codes)}',
+              f'KGI_KEYS_0901={",".join(keys_by_date.get("2026-09-01",[]))}',
+              f'REPO_MIN_DATE={min_repo_date.date()} LONG_START={LONG_START} OLD_END={old_end}',
+              f'FETCHED_TRADING_DAYS={fetched_days} FETCHED_TARGET_ROWS={fetched_rows}',
+              f'COMBINED_ROWS={len(df)} COMBINED_CODES={df["code"].nunique()}',
+              f'COVERAGE_MIN={min(cov) if cov else 0} MEDIAN={pd.Series(cov).median() if cov else 0} MAX={max(cov) if cov else 0}',
+              f'CANDIDATES_TESTED={len(results)}',
+              '',
+              'TOP30'
+          ]
+
+          for r in results[:30]:
+              lines.append(
+                  f'{label(r)} BAD={len(r["bad"])} tested={r["tested"]} skipped={len(r["skipped"])} '
+                  f'MAE_SIGNAL130={r["mae"]} '
+                  f'BAD_BY_DATE={json.dumps(r["bydate"],ensure_ascii=False)} '
+                  f'MISM={",".join(r["bad"])}'
+              )
+
+          lines += [
+              '',
+              f'BEST={label(best)} BAD={len(best["bad"])} tested={best["tested"]} skipped={len(best["skipped"])} MAE_SIGNAL130={best["mae"]}',
+              f'BEST_BAD_BY_DATE={json.dumps(best["bydate"],ensure_ascii=False)}',
+              'BEST_MISMATCHES',
+              *best['bad'],
+              '',
+              f'CURRENT={label(current)} BAD={len(current["bad"])} tested={current["tested"]} skipped={len(current["skipped"])} MAE_SIGNAL130={current["mae"]}',
+              f'CURRENT_BAD_BY_DATE={json.dumps(current["bydate"],ensure_ascii=False)}',
+              'CURRENT_MISMATCHES',
+              *current['bad'],
+              '',
+              f'CLOSE_STD={label(close_std)} BAD={len(close_std["bad"])} tested={close_std["tested"]} skipped={len(close_std["skipped"])} MAE_SIGNAL130={close_std["mae"]}',
+              f'CLOSE_STD_BAD_BY_DATE={json.dumps(close_std["bydate"],ensure_ascii=False)}',
+              'CLOSE_STD_MISMATCHES',
+              *close_std['bad'],
+          ]
+
+          OUT.write_text('\n'.join(lines),encoding='utf-8')
+          print('\n'.join(lines[:80]))
+          PY
+
+      - name: 提交結果
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/data/macd130_fiveday_official_v23.txt
+          if ! git diff --cached --quiet; then
+            git commit -m '驗證 MACD130 五日官方長歷史 V23'
+            git pull --rebase origin main
+            git push origin main
+          fi
