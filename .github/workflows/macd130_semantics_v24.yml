@@ -1,0 +1,857 @@
+name: MACD130 語意與 EMA 起始精查 V24
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install
+        run: pip install pandas numpy requests
+
+      - name: 精查凱基欄位語意與 EMA 起始方式
+        run: |
+          python - <<'PY'
+          import json, os, re, time
+          from pathlib import Path
+          from datetime import date, timedelta
+          from collections import Counter, defaultdict
+
+          import numpy as np
+          import pandas as pd
+          import requests
+
+          REPORT_DATES = [
+              '2026-08-25','2026-08-26','2026-08-27',
+              '2026-08-28','2026-09-01'
+          ]
+          END = pd.Timestamp('2026-09-01')
+          LONG_START = date(2024, 1, 1)
+          OUT = Path('docs/data/macd130_semantics_v24.txt')
+          OUT.parent.mkdir(parents=True, exist_ok=True)
+
+          S = requests.Session()
+          S.headers.update({'User-Agent':'Mozilla/5.0'})
+
+          def get_json(url, tries=4):
+              for i in range(tries):
+                  try:
+                      r = S.get(url, timeout=30)
+                      r.raise_for_status()
+                      return r.json()
+                  except Exception as e:
+                      if i == tries - 1:
+                          print('GET_FAIL', url, repr(e))
+                          return None
+                      time.sleep(1.0 + 0.8*i)
+              return None
+
+          # ------------------------------------------------------------
+          # 1) KGI HISTORY：先驗證每個欄位真正的 Python type / 值域
+          # ------------------------------------------------------------
+          html = S.get(
+              'https://yachia2002.github.io/kd-macd-public-report/',
+              timeout=30
+          ).text
+
+          a = html.find('const HISTORY = ')
+          p = html.find('{', a)
+          dep = 0
+          ins = False
+          esc = False
+          q = None
+          for j in range(p, len(html)):
+              c = html[j]
+              if ins:
+                  if esc:
+                      esc = False
+                  elif c == '\\':
+                      esc = True
+                  elif c == '"':
+                      ins = False
+                  continue
+              if c == '"':
+                  ins = True
+              elif c == '{':
+                  dep += 1
+              elif c == '}':
+                  dep -= 1
+                  if dep == 0:
+                      q = j + 1
+                      break
+
+          if a < 0 or p < 0 or q is None:
+              raise RuntimeError('找不到 KGI HISTORY')
+
+          H = json.loads(html[p:q])
+
+          refs = []
+          target_codes = set()
+
+          semantic_fields = [
+              'macd', 'macd60', 'macd130',
+              'signal60', 'signal130',
+              'strong', 'strong60', 'strong130',
+              'kd', 'streak'
+          ]
+
+          type_counter = {f: Counter() for f in semantic_fields}
+          sample_values = {f: [] for f in semantic_fields}
+          relation_counter = Counter()
+
+          for ds in REPORT_DATES:
+              if ds not in H:
+                  raise RuntimeError(f'KGI HISTORY 缺少 {ds}')
+              for r in H[ds]:
+                  code = str(r.get('code','')).strip()
+                  if not (len(code) == 4 and code.isdigit()):
+                      continue
+
+                  target_codes.add(code)
+                  refs.append({
+                      'date': pd.Timestamp(ds),
+                      'code': code,
+                      'name': str(r.get('name','')),
+                      'market': str(r.get('market','')),
+                      'expected': bool(r.get('macd130')),
+                      'raw': {f: r.get(f) for f in semantic_fields},
+                  })
+
+                  for f in semantic_fields:
+                      v = r.get(f)
+                      type_counter[f][type(v).__name__] += 1
+                      if len(sample_values[f]) < 12:
+                          pair = (repr(v), type(v).__name__)
+                          if pair not in sample_values[f]:
+                              sample_values[f].append(pair)
+
+                  relation_counter[
+                      (
+                          repr(r.get('macd130')),
+                          repr(r.get('signal130')),
+                          repr(r.get('strong130'))
+                      )
+                  ] += 1
+
+          ref_by_code = defaultdict(list)
+          for r in refs:
+              ref_by_code[r['code']].append(r)
+
+          # ------------------------------------------------------------
+          # 2) repo raw + 官方長歷史（沿用 V20/V23 已成功的 endpoints）
+          # ------------------------------------------------------------
+          rows = []
+          market_map = {}
+          min_repo_date = None
+
+          for fn in sorted(os.listdir('data/raw')):
+              if not fn.endswith('.json'):
+                  continue
+              try:
+                  with open('data/raw/' + fn, encoding='utf-8') as f:
+                      snap = json.load(f)
+                  d = pd.to_datetime(
+                      snap.get('date', fn[:-5]),
+                      format='%Y%m%d'
+                  )
+              except Exception:
+                  continue
+
+              if d > END:
+                  continue
+
+              if min_repo_date is None or d < min_repo_date:
+                  min_repo_date = d
+
+              for r in snap.get('rows', []):
+                  code = str(r.get('code','')).strip()
+                  if code not in target_codes:
+                      continue
+                  try:
+                      rows.append({
+                          'date': d,
+                          'code': code,
+                          'open': float(r['open']),
+                          'high': float(r['high']),
+                          'low': float(r['low']),
+                          'close': float(r['close']),
+                      })
+                      m = str(r.get('market','')).strip()
+                      if m:
+                          market_map[code] = m
+                  except Exception:
+                      pass
+
+          if min_repo_date is None:
+              raise RuntimeError('data/raw 沒有可用日期')
+
+          old_end = (min_repo_date - pd.Timedelta(days=1)).date()
+
+          def num(v):
+              if v is None:
+                  return None
+              s = re.sub(r'<[^>]*>', '', str(v))
+              s = s.replace(',', '').strip()
+              if s in ('', '--', '---', '----', 'N/A'):
+                  return None
+              try:
+                  return float(s)
+              except Exception:
+                  return None
+
+          def txt(v):
+              return re.sub(r'<[^>]*>', '', str(v or '')).strip()
+
+          def fetch_twse_day(d):
+              url = (
+                  'https://www.twse.com.tw/exchangeReport/MI_INDEX'
+                  f'?response=json&date={d.strftime("%Y%m%d")}&type=ALLBUT0999'
+              )
+              data = get_json(url)
+              out = []
+              if not data or data.get('stat') != 'OK':
+                  return out
+
+              for t in data.get('tables', []):
+                  fields = t.get('fields', [])
+                  if '證券代號' not in fields or '收盤價' not in fields:
+                      continue
+                  idx = {f:i for i,f in enumerate(fields)}
+                  for rr in t.get('data', []):
+                      try:
+                          code = txt(rr[idx['證券代號']])
+                          if code not in target_codes:
+                              continue
+                          o = num(rr[idx['開盤價']])
+                          h = num(rr[idx['最高價']])
+                          l = num(rr[idx['最低價']])
+                          c = num(rr[idx['收盤價']])
+                          if None in (o,h,l,c):
+                              continue
+                          out.append({
+                              'date': pd.Timestamp(d),
+                              'code': code,
+                              'open': o, 'high': h, 'low': l, 'close': c
+                          })
+                          market_map.setdefault(code, '上市')
+                      except Exception:
+                          pass
+              return out
+
+          def fetch_tpex_day(d):
+              roc = f'{d.year-1911}/{d.month:02d}/{d.day:02d}'
+              url = (
+                  'https://www.tpex.org.tw/web/stock/aftertrading/'
+                  'otc_quotes_no1430/stk_wn1430_result.php'
+                  f'?l=zh-tw&d={roc}&se=EW&o=json'
+              )
+              data = get_json(url)
+              out = []
+              if not data or not data.get('tables'):
+                  return out
+
+              raw = data['tables'][0].get('data', [])
+              for rr in raw:
+                  if len(rr) < 8:
+                      continue
+                  try:
+                      code = txt(rr[0])
+                      if code not in target_codes:
+                          continue
+                      c = num(rr[2])
+                      o = num(rr[4])
+                      h = num(rr[5])
+                      l = num(rr[6])
+                      if None in (o,h,l,c):
+                          continue
+                      out.append({
+                          'date': pd.Timestamp(d),
+                          'code': code,
+                          'open': o, 'high': h, 'low': l, 'close': c
+                      })
+                      market_map.setdefault(code, '上櫃')
+                  except Exception:
+                      pass
+              return out
+
+          fetched_days = 0
+          fetched_rows = 0
+          d = LONG_START
+
+          while d <= old_end:
+              if d.weekday() < 5:
+                  a1 = fetch_twse_day(d)
+                  a2 = fetch_tpex_day(d)
+                  if a1 or a2:
+                      rows.extend(a1)
+                      rows.extend(a2)
+                      fetched_days += 1
+                      fetched_rows += len(a1) + len(a2)
+
+                  if fetched_days and fetched_days % 50 == 0:
+                      print(
+                          'official progress',
+                          fetched_days, d,
+                          'rows', fetched_rows
+                      )
+                  time.sleep(0.06)
+
+              d += timedelta(days=1)
+
+          df = pd.DataFrame(rows)
+          if df.empty:
+              raise RuntimeError('沒有組出官方長歷史')
+
+          df = (
+              df.drop_duplicates(['date','code'], keep='last')
+                .sort_values(['code','date'])
+                .reset_index(drop=True)
+          )
+          groups = {
+              c: g.reset_index(drop=True)
+              for c,g in df.groupby('code')
+          }
+
+          # ------------------------------------------------------------
+          # 3) MACD 結構變體
+          # ------------------------------------------------------------
+          def price_series(g, basis='WCL', input_round=None):
+              if basis == 'CLOSE':
+                  x = g['close'].astype(float)
+              elif basis == 'HLC3':
+                  x = (g['high'] + g['low'] + g['close']) / 3.0
+              elif basis == 'OHLC4':
+                  x = (
+                      g['open'] + g['high'] +
+                      g['low'] + g['close']
+                  ) / 4.0
+              else:
+                  x = (
+                      2*g['close'] + g['high'] + g['low']
+                  ) / 4.0
+
+              if input_round is not None:
+                  x = x.round(input_round)
+              return x.reset_index(drop=True)
+
+          def ema_first_seed(x, n, round_each=None):
+              arr = np.asarray(x, dtype=float)
+              out = np.full(len(arr), np.nan)
+              if len(arr) == 0:
+                  return pd.Series(out)
+              alpha = 2.0 / (n + 1.0)
+              out[0] = arr[0]
+              if round_each is not None:
+                  out[0] = round(out[0], round_each)
+              for i in range(1, len(arr)):
+                  v = alpha*arr[i] + (1-alpha)*out[i-1]
+                  if round_each is not None:
+                      v = round(v, round_each)
+                  out[i] = v
+              return pd.Series(out)
+
+          def ema_sma_seed(x, n, round_each=None):
+              arr = np.asarray(x, dtype=float)
+              out = np.full(len(arr), np.nan)
+              if len(arr) < n:
+                  return pd.Series(out)
+
+              seed = float(np.mean(arr[:n]))
+              if round_each is not None:
+                  seed = round(seed, round_each)
+              out[n-1] = seed
+
+              alpha = 2.0 / (n + 1.0)
+              for i in range(n, len(arr)):
+                  v = alpha*arr[i] + (1-alpha)*out[i-1]
+                  if round_each is not None:
+                      v = round(v, round_each)
+                  out[i] = v
+              return pd.Series(out)
+
+          def signal_from_valid_first(dif, n, round_each=None):
+              arr = np.asarray(dif, dtype=float)
+              out = np.full(len(arr), np.nan)
+              valid = np.where(np.isfinite(arr))[0]
+              if len(valid) == 0:
+                  return pd.Series(out)
+
+              alpha = 2.0 / (n + 1.0)
+              first = valid[0]
+              out[first] = arr[first]
+              if round_each is not None:
+                  out[first] = round(out[first], round_each)
+
+              for pos in valid[1:]:
+                  prev = pos - 1
+                  while prev >= 0 and not np.isfinite(out[prev]):
+                      prev -= 1
+                  if prev < 0:
+                      continue
+                  v = alpha*arr[pos] + (1-alpha)*out[prev]
+                  if round_each is not None:
+                      v = round(v, round_each)
+                  out[pos] = v
+              return pd.Series(out)
+
+          def signal_from_valid_sma(dif, n, round_each=None):
+              arr = np.asarray(dif, dtype=float)
+              out = np.full(len(arr), np.nan)
+              valid = np.where(np.isfinite(arr))[0]
+              if len(valid) < n:
+                  return pd.Series(out)
+
+              seed_idx = valid[n-1]
+              seed = float(np.mean(arr[valid[:n]]))
+              if round_each is not None:
+                  seed = round(seed, round_each)
+              out[seed_idx] = seed
+
+              alpha = 2.0 / (n + 1.0)
+              for pos in valid[n:]:
+                  prev = pos - 1
+                  while prev >= 0 and not np.isfinite(out[prev]):
+                      prev -= 1
+                  if prev < 0:
+                      continue
+                  v = alpha*arr[pos] + (1-alpha)*out[prev]
+                  if round_each is not None:
+                      v = round(v, round_each)
+                  out[pos] = v
+              return pd.Series(out)
+
+          def calc_variant(g, spec):
+              basis = spec['basis']
+              kind = spec['kind']
+              input_round = spec.get('input_round')
+              round_each = spec.get('round_each')
+
+              x = price_series(g, basis, input_round)
+
+              if kind == 'PANDAS_FALSE':
+                  ef = x.ewm(span=12, adjust=False).mean()
+                  es = x.ewm(span=130, adjust=False).mean()
+                  dif = ef - es
+                  sig = dif.ewm(span=9, adjust=False).mean()
+
+              elif kind == 'PANDAS_TRUE':
+                  ef = x.ewm(span=12, adjust=True).mean()
+                  es = x.ewm(span=130, adjust=True).mean()
+                  dif = ef - es
+                  sig = dif.ewm(span=9, adjust=True).mean()
+
+              elif kind == 'FIRST_RECUR_ROUND':
+                  ef = ema_first_seed(x, 12, round_each)
+                  es = ema_first_seed(x, 130, round_each)
+                  dif = ef - es
+                  if round_each is not None:
+                      dif = dif.round(round_each)
+                  sig = ema_first_seed(dif, 9, round_each)
+
+              elif kind == 'SMA_EMA_SIGNAL_FIRST':
+                  ef = ema_sma_seed(x, 12, round_each)
+                  es = ema_sma_seed(x, 130, round_each)
+                  dif = ef - es
+                  if round_each is not None:
+                      dif = dif.round(round_each)
+                  sig = signal_from_valid_first(
+                      dif, 9, round_each
+                  )
+
+              elif kind == 'TALIB_SMA_SIGNAL_SMA':
+                  ef = ema_sma_seed(x, 12, round_each)
+                  es = ema_sma_seed(x, 130, round_each)
+                  dif = ef - es
+                  if round_each is not None:
+                      dif = dif.round(round_each)
+                  sig = signal_from_valid_sma(
+                      dif, 9, round_each
+                  )
+
+              elif kind == 'FULL_EMA_SIGNAL_AFTER_SLOW_FIRST':
+                  # fast/slow 從第一筆開始，但 signal 不使用 slow 尚未暖機的前129筆 DIF
+                  ef = ema_first_seed(x, 12, round_each)
+                  es = ema_first_seed(x, 130, round_each)
+                  dif = ef - es
+                  dif2 = dif.copy()
+                  dif2.iloc[:129] = np.nan
+                  if round_each is not None:
+                      dif2 = dif2.round(round_each)
+                  sig = signal_from_valid_first(
+                      dif2, 9, round_each
+                  )
+
+              elif kind == 'FULL_EMA_SIGNAL_AFTER_SLOW_SMA':
+                  ef = ema_first_seed(x, 12, round_each)
+                  es = ema_first_seed(x, 130, round_each)
+                  dif = ef - es
+                  dif2 = dif.copy()
+                  dif2.iloc[:129] = np.nan
+                  if round_each is not None:
+                      dif2 = dif2.round(round_each)
+                  sig = signal_from_valid_sma(
+                      dif2, 9, round_each
+                  )
+              else:
+                  raise ValueError(kind)
+
+              osc = dif - sig
+              return pd.DataFrame({
+                  'date': g['date'],
+                  'dif': dif,
+                  'sig': sig,
+                  'osc': osc
+              })
+
+          specs = []
+
+          def add(label, basis, kind, input_round=None, round_each=None):
+              specs.append({
+                  'label': label,
+                  'basis': basis,
+                  'kind': kind,
+                  'input_round': input_round,
+                  'round_each': round_each,
+              })
+
+          # Current / basic price bases
+          for basis in ['WCL','CLOSE','HLC3','OHLC4']:
+              add(f'{basis}_PANDAS_FALSE', basis, 'PANDAS_FALSE')
+              add(f'{basis}_PANDAS_TRUE', basis, 'PANDAS_TRUE')
+
+          # Price rounding before EMA
+          for dec in [2,3,4]:
+              add(
+                  f'WCL_INPUT_ROUND{dec}',
+                  'WCL','PANDAS_FALSE',
+                  input_round=dec
+              )
+              add(
+                  f'CLOSE_INPUT_ROUND{dec}',
+                  'CLOSE','PANDAS_FALSE',
+                  input_round=dec
+              )
+
+          # Per-step EMA rounding
+          for dec in [2,3,4,5,6]:
+              add(
+                  f'WCL_FIRST_RECUR_ROUND{dec}',
+                  'WCL','FIRST_RECUR_ROUND',
+                  round_each=dec
+              )
+              add(
+                  f'CLOSE_FIRST_RECUR_ROUND{dec}',
+                  'CLOSE','FIRST_RECUR_ROUND',
+                  round_each=dec
+              )
+
+          # Seed / warm-up hypotheses
+          for basis in ['WCL','CLOSE','HLC3','OHLC4']:
+              add(
+                  f'{basis}_SMA_EMA_SIGNAL_FIRST',
+                  basis,'SMA_EMA_SIGNAL_FIRST'
+              )
+              add(
+                  f'{basis}_TALIB_SMA_SIGNAL_SMA',
+                  basis,'TALIB_SMA_SIGNAL_SMA'
+              )
+              add(
+                  f'{basis}_FULL_SIGNAL_AFTER_SLOW_FIRST',
+                  basis,'FULL_EMA_SIGNAL_AFTER_SLOW_FIRST'
+              )
+              add(
+                  f'{basis}_FULL_SIGNAL_AFTER_SLOW_SMA',
+                  basis,'FULL_EMA_SIGNAL_AFTER_SLOW_SMA'
+              )
+
+          # SMA-seeded + rounding
+          for dec in [2,3,4]:
+              add(
+                  f'WCL_TALIB_ROUND{dec}',
+                  'WCL','TALIB_SMA_SIGNAL_SMA',
+                  round_each=dec
+              )
+              add(
+                  f'CLOSE_TALIB_ROUND{dec}',
+                  'CLOSE','TALIB_SMA_SIGNAL_SMA',
+                  round_each=dec
+              )
+
+          cache = {}
+
+          def get_calc(code, spec):
+              key = (code, spec['label'])
+              if key in cache:
+                  return cache[key]
+              g = groups.get(code)
+              if g is None or g.empty:
+                  cache[key] = None
+              else:
+                  cache[key] = calc_variant(g, spec)
+              return cache[key]
+
+          def evaluate(spec, rule):
+              bad = []
+              bydate = {d:0 for d in REPORT_DATES}
+              tested = 0
+              skipped = []
+              margins = []
+
+              for code, items in ref_by_code.items():
+                  z = get_calc(code, spec)
+                  if z is None:
+                      for item in items:
+                          skipped.append(
+                              f'{item["date"].date()}:{code}:NO_DATA'
+                          )
+                      continue
+
+                  for item in items:
+                      q = z[z['date'] <= item['date']]
+                      if q.empty:
+                          skipped.append(
+                              f'{item["date"].date()}:{code}:EMPTY'
+                          )
+                          continue
+
+                      rr = q.iloc[-1]
+                      dif = float(rr['dif']) if pd.notna(rr['dif']) else np.nan
+                      sig = float(rr['sig']) if pd.notna(rr['sig']) else np.nan
+                      osc = float(rr['osc']) if pd.notna(rr['osc']) else np.nan
+
+                      if rule == 'DIF':
+                          val = dif
+                      elif rule == 'OSC':
+                          val = osc
+                      elif rule == 'DIF_AND_SIGNAL':
+                          if not (np.isfinite(dif) and np.isfinite(sig)):
+                              skipped.append(
+                                  f'{item["date"].date()}:{code}:NAN'
+                              )
+                              continue
+                          got = bool(dif > 0 and sig > 0)
+                          val = min(abs(dif), abs(sig))
+                      else:
+                          val = sig
+
+                      if rule != 'DIF_AND_SIGNAL':
+                          if not np.isfinite(val):
+                              skipped.append(
+                                  f'{item["date"].date()}:{code}:NAN'
+                              )
+                              continue
+                          got = bool(val > 0)
+
+                      tested += 1
+                      if got != item['expected']:
+                          ds = str(item['date'].date())
+                          bad.append(f'{ds}:{code}')
+                          bydate[ds] += 1
+                          margins.append(abs(val))
+
+              return {
+                  'label': spec['label'],
+                  'rule': rule,
+                  'bad': bad,
+                  'bydate': bydate,
+                  'tested': tested,
+                  'skipped': skipped,
+                  'margins': margins,
+              }
+
+          results = []
+          for spec in specs:
+              for rule in ['SIGNAL','DIF','OSC','DIF_AND_SIGNAL']:
+                  results.append(evaluate(spec, rule))
+
+          results.sort(
+              key=lambda r:(
+                  len(r['bad']),
+                  -r['tested'],
+                  len(r['skipped']),
+                  np.median(r['margins'])
+                  if r['margins'] else 999999
+              )
+          )
+
+          current = next(
+              r for r in results
+              if r['label']=='WCL_PANDAS_FALSE'
+              and r['rule']=='SIGNAL'
+          )
+          best = results[0]
+
+          # ------------------------------------------------------------
+          # 4) 固定錯股詳細表：current vs best + KGI raw fields
+          # ------------------------------------------------------------
+          focus_keys = list(dict.fromkeys(
+              current['bad'] + best['bad']
+          ))
+          focus_codes = sorted({
+              x.split(':',1)[1]
+              for x in focus_keys
+              if ':' in x
+          })
+
+          spec_by_label = {s['label']:s for s in specs}
+          best_spec = spec_by_label[best['label']]
+          current_spec = spec_by_label['WCL_PANDAS_FALSE']
+
+          def point(code, d, spec):
+              z = get_calc(code, spec)
+              if z is None:
+                  return None
+              q = z[z['date'] <= d]
+              if q.empty:
+                  return None
+              rr = q.iloc[-1]
+              return {
+                  'dif': None if pd.isna(rr['dif']) else float(rr['dif']),
+                  'sig': None if pd.isna(rr['sig']) else float(rr['sig']),
+                  'osc': None if pd.isna(rr['osc']) else float(rr['osc']),
+              }
+
+          ref_lookup = {
+              (str(r['date'].date()), r['code']): r
+              for r in refs
+          }
+
+          # ------------------------------------------------------------
+          # 5) Coverage
+          # ------------------------------------------------------------
+          cov = []
+          for r in refs:
+              g = groups.get(r['code'])
+              n = 0 if g is None else int(
+                  (g['date'] <= r['date']).sum()
+              )
+              cov.append(n)
+
+          # ------------------------------------------------------------
+          # 6) Output
+          # ------------------------------------------------------------
+          lines = [
+              '=== MACD130 SEMANTICS / EMA SEED V24 ===',
+              f'REPORT_DATES={",".join(REPORT_DATES)}',
+              f'KGI_REFS={len(refs)} UNIQUE_CODES={len(target_codes)}',
+              f'REPO_MIN_DATE={min_repo_date.date()}',
+              f'LONG_START={LONG_START} OLD_END={old_end}',
+              f'FETCHED_TRADING_DAYS={fetched_days}',
+              f'FETCHED_TARGET_ROWS={fetched_rows}',
+              f'COMBINED_ROWS={len(df)} COMBINED_CODES={df["code"].nunique()}',
+              f'COVERAGE_MIN={min(cov) if cov else 0} '
+              f'MEDIAN={pd.Series(cov).median() if cov else 0} '
+              f'MAX={max(cov) if cov else 0}',
+              '',
+              '=== KGI FIELD TYPES ===',
+          ]
+
+          for f in semantic_fields:
+              lines.append(
+                  f'{f} TYPES={dict(type_counter[f])} '
+                  f'SAMPLES={sample_values[f]}'
+              )
+
+          lines += [
+              '',
+              '=== KGI macd130 / signal130 / strong130 RELATIONS ==='
+          ]
+
+          for k,v in relation_counter.most_common():
+              lines.append(
+                  f'macd130={k[0]} signal130={k[1]} '
+                  f'strong130={k[2]} COUNT={v}'
+              )
+
+          lines += [
+              '',
+              f'SPECS={len(specs)} RESULTS={len(results)}',
+              '',
+              '=== TOP40 STRUCTURAL CANDIDATES ==='
+          ]
+
+          for r in results[:40]:
+              med = (
+                  float(np.median(r['margins']))
+                  if r['margins'] else None
+              )
+              lines.append(
+                  f'{r["label"]} RULE={r["rule"]} '
+                  f'BAD={len(r["bad"])} '
+                  f'tested={r["tested"]} '
+                  f'skipped={len(r["skipped"])} '
+                  f'MEDIAN_BAD_MARGIN={med} '
+                  f'BAD_BY_DATE={json.dumps(r["bydate"],ensure_ascii=False)} '
+                  f'MISM={",".join(r["bad"])}'
+              )
+
+          lines += [
+              '',
+              f'BEST={best["label"]} RULE={best["rule"]} '
+              f'BAD={len(best["bad"])} '
+              f'tested={best["tested"]} '
+              f'skipped={len(best["skipped"])}',
+              f'BEST_BAD_BY_DATE={json.dumps(best["bydate"],ensure_ascii=False)}',
+              'BEST_MISMATCHES',
+              *best['bad'],
+              '',
+              f'CURRENT={current["label"]} RULE={current["rule"]} '
+              f'BAD={len(current["bad"])} '
+              f'tested={current["tested"]} '
+              f'skipped={len(current["skipped"])}',
+              f'CURRENT_BAD_BY_DATE={json.dumps(current["bydate"],ensure_ascii=False)}',
+              'CURRENT_MISMATCHES',
+              *current['bad'],
+              '',
+              f'FOCUS_CODES={",".join(focus_codes)}',
+              '',
+              '=== FOCUS DETAIL ===',
+          ]
+
+          for key in focus_keys:
+              ds, code = key.split(':',1)
+              ref = ref_lookup.get((ds, code))
+              if ref is None:
+                  continue
+
+              cp = point(code, ref['date'], current_spec)
+              bp = point(code, ref['date'], best_spec)
+
+              lines.append(
+                  f'{ds}:{code} {ref["name"]} {ref["market"]} '
+                  f'EXPECTED_macd130={ref["expected"]} '
+                  f'KGI_RAW={ref["raw"]} '
+                  f'CURRENT={cp} '
+                  f'BEST={bp}'
+              )
+
+          OUT.write_text('\n'.join(lines), encoding='utf-8')
+          print('\n'.join(lines[:180]))
+          PY
+
+      - name: 提交結果
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/data/macd130_semantics_v24.txt
+          if ! git diff --cached --quiet; then
+            git commit -m '精查 MACD130 語意與 EMA 起始 V24'
+            git pull --rebase origin main
+            git push origin main
+          fi
