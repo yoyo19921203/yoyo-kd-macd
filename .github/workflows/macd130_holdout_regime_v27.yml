@@ -1,0 +1,790 @@
+name: MACD130 多日樣本外與 MACD60 狀態分段驗證 V27
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: macd130-holdout-regime-v27
+  cancel-in-progress: false
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install
+        run: pip install pandas numpy requests
+
+      - name: 執行 V27 多日樣本外與狀態分段驗證
+        run: |
+          python - <<'PY'
+          import json
+          import math
+          import os
+          import re
+          import time
+          from collections import Counter, defaultdict
+          from datetime import date, timedelta
+          from pathlib import Path
+
+          import numpy as np
+          import pandas as pd
+          import requests
+
+
+          # V26 的五日只當 anchor；V27 不用它們重新挑參數。
+          ANCHOR_DATES = [
+              '2026-08-25', '2026-08-26', '2026-08-27',
+              '2026-08-28', '2026-09-01'
+          ]
+          HISTORY_START = '2026-07-23'
+          LONG_START = date(2024, 1, 1)
+          OUT = Path('docs/data/macd130_holdout_regime_v27.txt')
+          OUT.parent.mkdir(parents=True, exist_ok=True)
+
+          S = requests.Session()
+          S.headers.update({'User-Agent': 'Mozilla/5.0'})
+
+
+          def get_json(url, tries=4):
+              for i in range(tries):
+                  try:
+                      r = S.get(url, timeout=30)
+                      r.raise_for_status()
+                      return r.json()
+                  except Exception as e:
+                      if i == tries - 1:
+                          print('GET_FAIL', url, repr(e))
+                          return None
+                      time.sleep(1.0 + 0.8 * i)
+              return None
+
+
+          def num(v):
+              if v is None:
+                  return None
+              s = re.sub(r'<[^>]*>', '', str(v)).replace(',', '').strip()
+              if s in ('', '--', '---', '----', 'N/A'):
+                  return None
+              try:
+                  return float(s)
+              except Exception:
+                  return None
+
+
+          def txt(v):
+              return re.sub(r'<[^>]*>', '', str(v or '')).strip()
+
+
+          def extract_history(html):
+              a = html.find('const HISTORY = ')
+              p = html.find('{', a)
+              depth = 0
+              in_string = False
+              escaped = False
+              q = None
+              for j in range(p, len(html)):
+                  c = html[j]
+                  if in_string:
+                      if escaped:
+                          escaped = False
+                      elif c == '\\':
+                          escaped = True
+                      elif c == '"':
+                          in_string = False
+                      continue
+                  if c == '"':
+                      in_string = True
+                  elif c == '{':
+                      depth += 1
+                  elif c == '}':
+                      depth -= 1
+                      if depth == 0:
+                          q = j + 1
+                          break
+              if a < 0 or p < 0 or q is None:
+                  raise RuntimeError('找不到 KGI HISTORY')
+              return json.loads(html[p:q])
+
+
+          # ------------------------------------------------------------
+          # 1) 凱基 HISTORY：保留 V26 anchor，加入全部可用樣本外交易日。
+          # ------------------------------------------------------------
+          html = S.get(
+              'https://yachia2002.github.io/kd-macd-public-report/',
+              timeout=40
+          ).text
+          H = extract_history(html)
+          report_dates = sorted(
+              d for d in H
+              if d >= HISTORY_START and re.fullmatch(r'\d{4}-\d{2}-\d{2}', d)
+          )
+          if not report_dates:
+              raise RuntimeError('KGI HISTORY 沒有 V27 可用日期')
+          missing_anchor = [d for d in ANCHOR_DATES if d not in report_dates]
+          if missing_anchor:
+              raise RuntimeError(f'KGI HISTORY 缺少 anchor: {missing_anchor}')
+          holdout_dates = [d for d in report_dates if d not in ANCHOR_DATES]
+          if not holdout_dates:
+              raise RuntimeError('沒有新增樣本外日期，停止避免重複 V26')
+          report_index = {d: i for i, d in enumerate(report_dates)}
+          end = pd.Timestamp(report_dates[-1])
+
+          refs = []
+          target_codes = set()
+          field_types = defaultdict(Counter)
+          for ds in report_dates:
+              for raw in H[ds]:
+                  code = str(raw.get('code', '')).strip()
+                  if not (len(code) == 4 and code.isdigit()):
+                      continue
+                  target_codes.add(code)
+                  row = {
+                      'date': pd.Timestamp(ds),
+                      'date_s': ds,
+                      'code': code,
+                      'name': str(raw.get('name', '')),
+                      'market': str(raw.get('market', '')).strip(),
+                      'macd60': bool(raw.get('macd60')),
+                      'macd130': bool(raw.get('macd130')),
+                      'signal60': bool(raw.get('signal60')),
+                      'signal130': bool(raw.get('signal130')),
+                      'strong60': bool(raw.get('strong60')),
+                      'strong130': bool(raw.get('strong130')),
+                  }
+                  refs.append(row)
+                  for f in [
+                      'macd60', 'macd130', 'signal60', 'signal130',
+                      'strong60', 'strong130'
+                  ]:
+                      field_types[f][type(raw.get(f)).__name__] += 1
+
+          refs_by_code = defaultdict(list)
+          for r in refs:
+              refs_by_code[r['code']].append(r)
+          for code in refs_by_code:
+              refs_by_code[code].sort(key=lambda x: x['date'])
+
+          refs_by_date = Counter(r['date_s'] for r in refs)
+          refs_by_market = Counter(r['market'] for r in refs)
+          true_by_date = {
+              f: Counter(r['date_s'] for r in refs if r[f])
+              for f in ['macd60', 'macd130', 'signal60', 'signal130']
+          }
+          macd60_true_dates = [
+              d for d in report_dates if true_by_date['macd60'].get(d, 0) > 0
+          ]
+          first_macd60_active = (
+              macd60_true_dates[0] if macd60_true_dates else None
+          )
+          macd60_pre_dates = [
+              d for d in report_dates
+              if first_macd60_active is None or d < first_macd60_active
+          ]
+          macd60_active_dates = [
+              d for d in report_dates
+              if first_macd60_active is not None and d >= first_macd60_active
+          ]
+
+
+          # ------------------------------------------------------------
+          # 2) Repo raw 與完整官方每日市場資料。
+          #    只用 TWSE/TPEx 每日全市場端點，不使用 V22 個股 API。
+          # ------------------------------------------------------------
+          repo_rows = []
+          repo_min = None
+          for fn in sorted(os.listdir('data/raw')):
+              if not fn.endswith('.json'):
+                  continue
+              try:
+                  with open('data/raw/' + fn, encoding='utf-8') as f:
+                      snap = json.load(f)
+                  d = pd.to_datetime(snap.get('date', fn[:-5]), format='%Y%m%d')
+              except Exception:
+                  continue
+              if d > end:
+                  continue
+              repo_min = d if repo_min is None else min(repo_min, d)
+              for raw in snap.get('rows', []):
+                  code = str(raw.get('code', '')).strip()
+                  if code not in target_codes:
+                      continue
+                  try:
+                      repo_rows.append({
+                          'date': d, 'code': code,
+                          'open': float(raw['open']),
+                          'high': float(raw['high']),
+                          'low': float(raw['low']),
+                          'close': float(raw['close']),
+                          'market': str(raw.get('market', '')).strip(),
+                      })
+                  except Exception:
+                      pass
+          if repo_min is None:
+              raise RuntimeError('data/raw 沒有可用日期')
+
+
+          def fetch_twse_day(d):
+              url = (
+                  'https://www.twse.com.tw/exchangeReport/MI_INDEX'
+                  f'?response=json&date={d.strftime("%Y%m%d")}&type=ALLBUT0999'
+              )
+              data = get_json(url)
+              out = []
+              if not data or data.get('stat') != 'OK':
+                  return out
+              for table in data.get('tables', []):
+                  fields = table.get('fields', [])
+                  if '證券代號' not in fields or '收盤價' not in fields:
+                      continue
+                  idx = {f: i for i, f in enumerate(fields)}
+                  for rr in table.get('data', []):
+                      try:
+                          code = txt(rr[idx['證券代號']])
+                          if code not in target_codes:
+                              continue
+                          o = num(rr[idx['開盤價']])
+                          h = num(rr[idx['最高價']])
+                          l = num(rr[idx['最低價']])
+                          c = num(rr[idx['收盤價']])
+                          if None in (o, h, l, c):
+                              continue
+                          out.append({
+                              'date': pd.Timestamp(d), 'code': code,
+                              'open': o, 'high': h, 'low': l, 'close': c,
+                              'market': '上市',
+                          })
+                      except Exception:
+                          pass
+              return out
+
+
+          def fetch_tpex_day(d):
+              roc = f'{d.year - 1911}/{d.month:02d}/{d.day:02d}'
+              url = (
+                  'https://www.tpex.org.tw/web/stock/aftertrading/'
+                  'otc_quotes_no1430/stk_wn1430_result.php'
+                  f'?l=zh-tw&d={roc}&se=EW&o=json'
+              )
+              data = get_json(url)
+              out = []
+              if not data or not data.get('tables'):
+                  return out
+              for rr in data['tables'][0].get('data', []):
+                  if len(rr) < 8:
+                      continue
+                  try:
+                      code = txt(rr[0])
+                      if code not in target_codes:
+                          continue
+                      c = num(rr[2])
+                      o = num(rr[4])
+                      h = num(rr[5])
+                      l = num(rr[6])
+                      if None in (o, h, l, c):
+                          continue
+                      out.append({
+                          'date': pd.Timestamp(d), 'code': code,
+                          'open': o, 'high': h, 'low': l, 'close': c,
+                          'market': '上櫃',
+                      })
+                  except Exception:
+                      pass
+              return out
+
+
+          official_rows = []
+          fetched_days = 0
+          d = LONG_START
+          while d <= end.date():
+              if d.weekday() < 5:
+                  twse = fetch_twse_day(d)
+                  tpex = fetch_tpex_day(d)
+                  if twse or tpex:
+                      official_rows.extend(twse)
+                      official_rows.extend(tpex)
+                      fetched_days += 1
+                  if fetched_days and fetched_days % 50 == 0:
+                      print('official progress', fetched_days, d, len(official_rows))
+                  time.sleep(0.06)
+              d += timedelta(days=1)
+
+          repo_df = pd.DataFrame(repo_rows)
+          official_df = pd.DataFrame(official_rows)
+          if repo_df.empty or official_df.empty:
+              raise RuntimeError('repo 或官方完整歷史為空')
+          repo_df = (
+              repo_df.drop_duplicates(['date', 'code'], keep='last')
+                     .sort_values(['code', 'date']).reset_index(drop=True)
+          )
+          official_df = (
+              official_df.drop_duplicates(['date', 'code'], keep='last')
+                         .sort_values(['code', 'date']).reset_index(drop=True)
+          )
+          hybrid_df = pd.concat([
+              official_df[official_df['date'] < repo_min],
+              repo_df[repo_df['date'] >= repo_min],
+          ], ignore_index=True)
+          hybrid_df = (
+              hybrid_df.drop_duplicates(['date', 'code'], keep='last')
+                       .sort_values(['code', 'date']).reset_index(drop=True)
+          )
+
+
+          # ------------------------------------------------------------
+          # 3) 泛化的整批 OHLC 異常偵測與 REPAIRED 資料集。
+          #    不硬寫日期或股票代號。
+          # ------------------------------------------------------------
+          overlap = repo_df.merge(
+              official_df, on=['date', 'code'], how='inner',
+              suffixes=('_repo', '_official')
+          )
+          overlap['different'] = False
+          overlap['max_abs_diff'] = 0.0
+          for col in ['open', 'high', 'low', 'close']:
+              delta = (overlap[f'{col}_repo'] - overlap[f'{col}_official']).abs()
+              overlap[f'{col}_different'] = delta > 1e-9
+              overlap['different'] |= overlap[f'{col}_different']
+              overlap['max_abs_diff'] = np.maximum(
+                  overlap['max_abs_diff'].to_numpy(), delta.to_numpy()
+              )
+
+          group_rows = []
+          for (dt, market), g in overlap.groupby(['date', 'market_official']):
+              total = len(g)
+              different = int(g['different'].sum())
+              ratio = different / total if total else 0.0
+              flagged = different >= max(20, math.ceil(total * 0.20))
+              group_rows.append({
+                  'date': dt, 'market': market, 'total': total,
+                  'different': different, 'ratio': ratio,
+                  'flagged': flagged,
+              })
+          anomaly_groups = pd.DataFrame(group_rows)
+          flagged_groups = [
+              (pd.Timestamp(r['date']), r['market'])
+              for _, r in anomaly_groups[anomaly_groups['flagged']].iterrows()
+          ]
+
+          repaired_df = hybrid_df.copy()
+          for dt, market in flagged_groups:
+              repaired_df = repaired_df[
+                  ~((repaired_df['date'] == dt) & (repaired_df['market'] == market))
+              ]
+              repaired_df = pd.concat([
+                  repaired_df,
+                  official_df[
+                      (official_df['date'] == dt)
+                      & (official_df['market'] == market)
+                  ],
+              ], ignore_index=True)
+          repaired_df = (
+              repaired_df.drop_duplicates(['date', 'code'], keep='last')
+                         .sort_values(['code', 'date']).reset_index(drop=True)
+          )
+
+          datasets = {
+              'HYBRID': hybrid_df,
+              'REPAIRED': repaired_df,
+              'OFFICIAL_FULL': official_df,
+          }
+          groups = {
+              label: {
+                  code: g.reset_index(drop=True)
+                  for code, g in frame.groupby('code')
+              }
+              for label, frame in datasets.items()
+          }
+
+
+          # ------------------------------------------------------------
+          # 4) 凍結候選：不再掃 fast/signal，只驗證 V26 留下的三組。
+          # ------------------------------------------------------------
+          CONFIGS = [
+              {'name': 'PROD_WCL_12_9', 'basis': 'WCL', 'fast': 12, 'signal': 9},
+              {'name': 'CLOSE_12_9_FALSE', 'basis': 'CLOSE', 'fast': 12, 'signal': 9},
+              {'name': 'V23_WCL_19_4', 'basis': 'WCL', 'fast': 19, 'signal': 4},
+          ]
+          config_by_name = {c['name']: c for c in CONFIGS}
+          calc_cache = {}
+
+
+          def calc(dataset, code, config_name, slow):
+              key = (dataset, code, config_name, slow)
+              if key in calc_cache:
+                  return calc_cache[key]
+              g = groups[dataset].get(code)
+              if g is None or g.empty:
+                  calc_cache[key] = None
+                  return None
+              cfg = config_by_name[config_name]
+              if cfg['basis'] == 'CLOSE':
+                  x = g['close'].astype(float).reset_index(drop=True)
+              else:
+                  x = (
+                      2 * g['close'] + g['high'] + g['low']
+                  ).astype(float).reset_index(drop=True) / 4.0
+              dif = (
+                  x.ewm(span=cfg['fast'], adjust=False).mean()
+                  - x.ewm(span=slow, adjust=False).mean()
+              )
+              sig = dif.ewm(span=cfg['signal'], adjust=False).mean()
+              osc = dif - sig
+              z = pd.DataFrame({
+                  'date': g['date'].to_numpy(),
+                  'dif': dif.to_numpy(),
+                  'sig': sig.to_numpy(),
+                  'osc': osc.to_numpy(),
+              })
+              for f in ['dif', 'sig', 'osc']:
+                  z[f'{f}_delta1'] = z[f].diff()
+                  z[f'{f}_up_cross'] = (
+                      (z[f] > 0) & (z[f].shift(1) <= 0)
+                  )
+              calc_cache[key] = z
+              return z
+
+
+          def point(dataset, code, config_name, slow, report_date, offset):
+              z = calc(dataset, code, config_name, slow)
+              if z is None or z.empty:
+                  return None
+              pos = int(z['date'].searchsorted(report_date, side='right') - 1) + offset
+              if pos < 0 or pos >= len(z):
+                  return None
+              row = z.iloc[pos]
+              if not np.isfinite(row['dif']) or not np.isfinite(row['sig']):
+                  return None
+              out = {'date': str(pd.Timestamp(row['date']).date())}
+              for f in ['dif', 'sig', 'osc', 'dif_delta1', 'sig_delta1', 'osc_delta1']:
+                  out[f] = float(row[f]) if np.isfinite(row[f]) else None
+              for f in ['dif_up_cross', 'sig_up_cross', 'osc_up_cross']:
+                  out[f] = bool(row[f])
+              return out
+
+
+          RULES = {
+              'SIGNAL_GT0': lambda p: p['sig'] > 0,
+              'DIF_GT0': lambda p: p['dif'] > 0,
+              'OSC_GT0': lambda p: p['osc'] > 0,
+              'DIF_AND_SIGNAL_GT0': lambda p: p['dif'] > 0 and p['sig'] > 0,
+              'SIGNAL_AND_OSC_GT0': lambda p: p['sig'] > 0 and p['osc'] > 0,
+              'OSC_UP_CROSS_T': lambda p: p['osc_up_cross'],
+              'DIF_UP_CROSS_T': lambda p: p['dif_up_cross'],
+              'SIGNAL_UP_CROSS_T': lambda p: p['sig_up_cross'],
+          }
+
+
+          def evaluate(dataset, field, slow, config_name, offset, rule_name):
+              bad = []
+              skipped = []
+              by_date = Counter()
+              by_market = Counter()
+              by_split = Counter()
+              confusion = Counter()
+              for r in refs:
+                  p = point(
+                      dataset, r['code'], config_name, slow,
+                      r['date'], offset
+                  )
+                  if p is None:
+                      skipped.append(f'{r["date_s"]}:{r["code"]}')
+                      continue
+                  got = bool(RULES[rule_name](p))
+                  expected = bool(r[field])
+                  confusion[f'E{int(expected)}G{int(got)}'] += 1
+                  if got != expected:
+                      item = f'{r["date_s"]}:{r["code"]}'
+                      bad.append(item)
+                      by_date[r['date_s']] += 1
+                      by_market[r['market']] += 1
+                      by_split['ANCHOR' if r['date_s'] in ANCHOR_DATES else 'HOLDOUT'] += 1
+                      if field == 'macd60':
+                          era = (
+                              'ACTIVE' if r['date_s'] in macd60_active_dates
+                              else 'PRE_ACTIVE'
+                          )
+                          by_split[era] += 1
+              return {
+                  'dataset': dataset, 'field': field, 'slow': slow,
+                  'config': config_name, 'offset': offset, 'rule': rule_name,
+                  'bad': bad, 'skipped': skipped,
+                  'by_date': dict(by_date), 'by_market': dict(by_market),
+                  'by_split': dict(by_split), 'confusion': dict(confusion),
+                  'tested': len(refs) - len(skipped),
+              }
+
+
+          results = defaultdict(list)
+          for dataset in ['HYBRID', 'REPAIRED', 'OFFICIAL_FULL']:
+              for field, slow in [('macd130', 130), ('macd60', 60)]:
+                  for cfg in CONFIGS:
+                      # 凍結三組候選的正式語意。
+                      results[field].append(evaluate(
+                          dataset, field, slow, cfg['name'], 0, 'SIGNAL_GT0'
+                      ))
+
+          # 結構與 T/T-1 只在官方完整資料診斷，不改 EMA 參數。
+          for field, slow in [('macd130', 130), ('macd60', 60)]:
+              for cfg in CONFIGS:
+                  for offset in [-1, 0]:
+                      for rule_name in RULES:
+                          if offset == 0 and rule_name == 'SIGNAL_GT0':
+                              continue
+                          results[field].append(evaluate(
+                              'OFFICIAL_FULL', field, slow,
+                              cfg['name'], offset, rule_name
+                          ))
+
+
+          def sort_key(r):
+              return (
+                  len(r['bad']), len(r['skipped']),
+                  max(r['by_date'].values(), default=0),
+                  int(r['offset'] != 0),
+                  int(r['config'] != 'PROD_WCL_12_9'),
+              )
+
+
+          for field in results:
+              results[field].sort(key=sort_key)
+
+
+          def find_result(field, dataset, config, offset, rule):
+              return next(
+                  r for r in results[field]
+                  if r['dataset'] == dataset and r['config'] == config
+                  and r['offset'] == offset and r['rule'] == rule
+              )
+
+
+          def non_worse(candidate, baseline, dates):
+              return all(
+                  candidate['by_date'].get(d, 0)
+                  <= baseline['by_date'].get(d, 0)
+                  for d in dates
+              )
+
+
+          # ------------------------------------------------------------
+          # 5) KGI 狀態轉換，並直接比較凍結候選是否重現轉換。
+          # ------------------------------------------------------------
+          transition_counts = defaultdict(Counter)
+          transition_details = defaultdict(list)
+          candidate_transition_match = defaultdict(Counter)
+          for code, rows in refs_by_code.items():
+              for prev, curr in zip(rows, rows[1:]):
+                  if report_index[curr['date_s']] - report_index[prev['date_s']] != 1:
+                      continue
+                  for field, slow in [('macd130', 130), ('macd60', 60)]:
+                      old = bool(prev[field])
+                      new = bool(curr[field])
+                      state = f'{int(old)}->{int(new)}'
+                      transition_counts[field][state] += 1
+                      candidate_states = {}
+                      for cfg in CONFIGS:
+                          p_old = point(
+                              'OFFICIAL_FULL', code, cfg['name'], slow,
+                              prev['date'], 0
+                          )
+                          p_new = point(
+                              'OFFICIAL_FULL', code, cfg['name'], slow,
+                              curr['date'], 0
+                          )
+                          if p_old is None or p_new is None:
+                              candidate_transition_match[(field, cfg['name'])]['SKIP'] += 1
+                              continue
+                          got_old = bool(p_old['sig'] > 0)
+                          got_new = bool(p_new['sig'] > 0)
+                          got_state = f'{int(got_old)}->{int(got_new)}'
+                          candidate_states[cfg['name']] = got_state
+                          candidate_transition_match[(field, cfg['name'])][
+                              'PAIR_MATCH' if (got_old, got_new) == (old, new) else 'PAIR_MISMATCH'
+                          ] += 1
+                          if old != new:
+                              candidate_transition_match[(field, cfg['name'])][
+                                  'CHANGE_MATCH' if got_state == state else 'CHANGE_MISMATCH'
+                              ] += 1
+                      if old != new:
+                          prod_feature = point(
+                              'OFFICIAL_FULL', code, 'PROD_WCL_12_9', slow,
+                              curr['date'], 0
+                          )
+                          transition_details[field].append(
+                              f'{prev["date_s"]}->{curr["date_s"]}:{code} '
+                              f'{curr["name"]} {curr["market"]} KGI={state} '
+                              f'CANDIDATES={candidate_states} PROD_T={prod_feature}'
+                          )
+
+
+          # ------------------------------------------------------------
+          # 6) 輸出：明確分開 anchor/holdout、資料來源、市場與狀態期。
+          # ------------------------------------------------------------
+          lines = [
+              '=== MACD130 HOLDOUT + MACD60 REGIME VALIDATION V27 ===',
+              f'REPORT_DATES={",".join(report_dates)}',
+              f'ANCHOR_DATES={",".join(ANCHOR_DATES)}',
+              f'HOLDOUT_DATES={",".join(holdout_dates)}',
+              f'KGI_REFS={len(refs)} UNIQUE_CODES={len(target_codes)}',
+              f'REPO_MIN_DATE={repo_min.date()} LONG_START={LONG_START} END={end.date()}',
+              f'OFFICIAL_TRADING_DAYS={fetched_days}',
+              f'FIRST_MACD60_TRUE_DATE={first_macd60_active}',
+              f'MACD60_PRE_DATES={",".join(macd60_pre_dates)}',
+              f'MACD60_ACTIVE_DATES={",".join(macd60_active_dates)}',
+              'KD3_NOT_TOUCHED=True PRODUCTION_NOT_CHANGED=True',
+              'V22_INDIVIDUAL_API_USED=False FIXED_STOCK_LIST_USED=False',
+              '',
+              '=== KGI COVERAGE + FIELD TYPES ===',
+              f'REFS_BY_DATE={dict(refs_by_date)}',
+              f'REFS_BY_MARKET={dict(refs_by_market)}',
+          ]
+          for f in sorted(field_types):
+              lines.append(f'{f} TYPES={dict(field_types[f])}')
+          for f in ['macd130', 'macd60', 'signal130', 'signal60']:
+              lines.append(f'{f} TRUE_BY_DATE={dict(true_by_date[f])}')
+
+          lines += ['', '=== MARKET-DATE OHLC ANOMALY GROUPS ===']
+          for _, r in anomaly_groups.sort_values(
+              ['flagged', 'ratio', 'date'], ascending=[False, False, True]
+          ).iterrows():
+              if r['different'] == 0 and not r['flagged']:
+                  continue
+              lines.append(
+                  f'{pd.Timestamp(r["date"]).date()} {r["market"]} '
+                  f'DIFFERENT={int(r["different"])}/{int(r["total"])} '
+                  f'RATIO={float(r["ratio"]):.6f} FLAGGED={bool(r["flagged"])}'
+              )
+          lines.append(f'FLAGGED_GROUPS={[(str(d.date()), m) for d, m in flagged_groups]}')
+
+          lines += ['', '=== FROZEN MACD130 CANDIDATES ===']
+          base130 = find_result(
+              'macd130', 'OFFICIAL_FULL', 'PROD_WCL_12_9', 0, 'SIGNAL_GT0'
+          )
+          for dataset in ['HYBRID', 'REPAIRED', 'OFFICIAL_FULL']:
+              for cfg in CONFIGS:
+                  r = find_result('macd130', dataset, cfg['name'], 0, 'SIGNAL_GT0')
+                  lines.append(
+                      f'DATASET={dataset} CONFIG={cfg["name"]} RULE=SIGNAL_GT0 '
+                      f'BAD={len(r["bad"])} tested={r["tested"]} skipped={len(r["skipped"])} '
+                      f'BY_SPLIT={r["by_split"]} BY_DATE={r["by_date"]} '
+                      f'BY_MARKET={r["by_market"]} CONFUSION={r["confusion"]} '
+                      f'NON_WORSE_ANCHOR={non_worse(r, base130, ANCHOR_DATES)} '
+                      f'NON_WORSE_HOLDOUT={non_worse(r, base130, holdout_dates)}'
+                  )
+
+          lines += ['', '=== MACD130 TOP20 STRUCTURAL + T/T-1 ===']
+          for r in results['macd130'][:20]:
+              lines.append(
+                  f'DATASET={r["dataset"]} CONFIG={r["config"]} OFFSET={r["offset"]} '
+                  f'RULE={r["rule"]} BAD={len(r["bad"])} tested={r["tested"]} '
+                  f'skipped={len(r["skipped"])} BY_SPLIT={r["by_split"]} '
+                  f'BY_DATE={r["by_date"]} BY_MARKET={r["by_market"]}'
+              )
+
+          lines += ['', '=== MACD60 FROZEN + REGIME RESULTS ===']
+          base60 = find_result(
+              'macd60', 'OFFICIAL_FULL', 'PROD_WCL_12_9', 0, 'SIGNAL_GT0'
+          )
+          for dataset in ['HYBRID', 'REPAIRED', 'OFFICIAL_FULL']:
+              for cfg in CONFIGS:
+                  r = find_result('macd60', dataset, cfg['name'], 0, 'SIGNAL_GT0')
+                  lines.append(
+                      f'DATASET={dataset} CONFIG={cfg["name"]} RULE=SIGNAL_GT0 '
+                      f'BAD={len(r["bad"])} tested={r["tested"]} skipped={len(r["skipped"])} '
+                      f'BY_SPLIT={r["by_split"]} BY_DATE={r["by_date"]} '
+                      f'BY_MARKET={r["by_market"]} CONFUSION={r["confusion"]}'
+                  )
+
+          lines += ['', '=== MACD60 TOP30 STRUCTURAL + T/T-1 ===']
+          for r in results['macd60'][:30]:
+              lines.append(
+                  f'DATASET={r["dataset"]} CONFIG={r["config"]} OFFSET={r["offset"]} '
+                  f'RULE={r["rule"]} BAD={len(r["bad"])} tested={r["tested"]} '
+                  f'skipped={len(r["skipped"])} BY_SPLIT={r["by_split"]} '
+                  f'BY_DATE={r["by_date"]} BY_MARKET={r["by_market"]}'
+              )
+
+          lines += ['', '=== DATASET CLASSIFICATION CHANGES ===']
+          for field in ['macd130', 'macd60']:
+              h = find_result(field, 'HYBRID', 'PROD_WCL_12_9', 0, 'SIGNAL_GT0')
+              p = find_result(field, 'REPAIRED', 'PROD_WCL_12_9', 0, 'SIGNAL_GT0')
+              o = find_result(field, 'OFFICIAL_FULL', 'PROD_WCL_12_9', 0, 'SIGNAL_GT0')
+              hs, ps, os_ = set(h['bad']), set(p['bad']), set(o['bad'])
+              lines += [
+                  f'FIELD={field}',
+                  f'HYBRID_ONLY_VS_OFFICIAL={sorted(hs - os_)}',
+                  f'OFFICIAL_ONLY_VS_HYBRID={sorted(os_ - hs)}',
+                  f'REPAIRED_ONLY_VS_OFFICIAL={sorted(ps - os_)}',
+                  f'OFFICIAL_ONLY_VS_REPAIRED={sorted(os_ - ps)}',
+              ]
+
+          lines += ['', '=== KGI STATE TRANSITIONS ===']
+          for field in ['macd130', 'macd60']:
+              lines.append(f'{field} COUNTS={dict(transition_counts[field])}')
+              for cfg in CONFIGS:
+                  lines.append(
+                      f'{field} CONFIG={cfg["name"]} '
+                      f'MATCH={dict(candidate_transition_match[(field, cfg["name"])])}'
+                  )
+              lines.append(f'--- {field} CHANGES ---')
+              lines.extend(transition_details[field])
+
+          # 凍結三候選的完整 MACD130 mismatch，避免只看總數。
+          for cfg in CONFIGS:
+              r = find_result(
+                  'macd130', 'OFFICIAL_FULL', cfg['name'], 0, 'SIGNAL_GT0'
+              )
+              lines += [
+                  '',
+                  f'=== MACD130 {cfg["name"]} FULL MISMATCH LIST ===',
+                  f'BAD={len(r["bad"])} tested={r["tested"]} skipped={len(r["skipped"])}',
+                  *r['bad'],
+              ]
+
+          # 各欄位最佳完整 coverage 候選的 mismatch。
+          for field in ['macd130', 'macd60']:
+              eligible = [
+                  r for r in results[field]
+                  if r['dataset'] == 'OFFICIAL_FULL'
+                  and not r['skipped'] and r['tested'] == len(refs)
+              ]
+              eligible.sort(key=sort_key)
+              best = eligible[0]
+              lines += [
+                  '',
+                  f'=== BEST {field.upper()} FULL-COVERAGE MISMATCH LIST ===',
+                  f'CONFIG={best["config"]} OFFSET={best["offset"]} RULE={best["rule"]} '
+                  f'BAD={len(best["bad"])} tested={best["tested"]} skipped=0 '
+                  f'BY_SPLIT={best["by_split"]} BY_MARKET={best["by_market"]}',
+                  *best['bad'],
+              ]
+
+          OUT.write_text('\n'.join(lines), encoding='utf-8')
+          print('\n'.join(lines[:280]))
+          print('WROTE', OUT, 'LINES', len(lines))
+          PY
+
+      - name: 提交 V27 結果
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/data/macd130_holdout_regime_v27.txt
+          if ! git diff --cached --quiet; then
+            git commit -m '新增 MACD130 多日樣本外與 MACD60 分段驗證 V27'
+            git pull --rebase origin main
+            git push origin main
+          fi
